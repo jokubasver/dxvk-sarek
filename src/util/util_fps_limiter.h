@@ -86,37 +86,37 @@ namespace dxvk {
      * \returns \c true if the target frame rate is non-zero.
      */
     bool isEnabled() const {
-      return m_targetInterval != NtTimerDuration::zero();
+      return m_targetInterval != TimerDuration::zero();
     }
 
   private:
 
     using TimePoint = dxvk::high_resolution_clock::time_point;
 
-    using NtTimerDuration = std::chrono::duration<int64_t, std::ratio<1, 10000000>>;
+    using TimerDuration = std::chrono::duration<int64_t, std::ratio<1, 10000000>>;
     using NtQueryTimerResolutionProc = UINT (WINAPI *) (ULONG*, ULONG*, ULONG*);
     using NtSetTimerResolutionProc = UINT (WINAPI *) (ULONG, BOOL, ULONG*);
     using NtDelayExecutionProc = UINT (WINAPI *) (BOOL, LARGE_INTEGER*);
 
     dxvk::mutex     m_mutex;
 
-    NtTimerDuration m_targetInterval = NtTimerDuration::zero();
+    TimerDuration m_targetInterval = TimerDuration::zero();
     bool            m_isSoftLimit    = false;
-    NtTimerDuration m_deviation       = NtTimerDuration::zero();
+    TimerDuration m_deviation       = TimerDuration::zero();
     TimePoint       m_lastFrame;
 
     bool            m_initialized     = false;
     bool            m_envOverride     = false;
 
-    NtTimerDuration m_sleepGranularity = NtTimerDuration::zero();
-    NtTimerDuration m_sleepThreshold   = NtTimerDuration::zero();
+    TimerDuration m_sleepGranularity = TimerDuration::zero();
+    TimerDuration m_sleepThreshold   = TimerDuration::zero();
 
     FpsLimitPacing  m_pacing = FpsLimitPacing::Precise;
     FpsLimitMethod  m_method = FpsLimitMethod::Deviation;
 
     TimePoint       m_nextFrame;
     bool            m_hasTarget         = false;
-    NtTimerDuration m_targetOfLastFrame = NtTimerDuration::zero();
+    TimerDuration m_targetOfLastFrame = TimerDuration::zero();
 
     NtDelayExecutionProc NtDelayExecution = nullptr;
 
@@ -126,15 +126,15 @@ namespace dxvk {
 
     TimePoint nextTarget(TimePoint now);
 
-    TimePoint sleep(TimePoint t0, NtTimerDuration duration);
+    TimePoint sleep(TimePoint t0, TimerDuration duration);
 
-    TimePoint sleepOnce(NtTimerDuration duration);
+    TimePoint sleepOnce(TimerDuration duration);
 
-    TimePoint sleepPrecise(TimePoint t0, NtTimerDuration duration);
+    TimePoint sleepPrecise(TimePoint t0, TimerDuration duration);
 
-    TimePoint sleepSliced(TimePoint t0, NtTimerDuration duration);
+    TimePoint sleepSliced(TimePoint t0, TimerDuration duration);
 
-    TimePoint spinUntil(TimePoint t0, NtTimerDuration duration);
+    TimePoint spinUntil(TimePoint t0, TimerDuration duration);
 
     void initialize();
 

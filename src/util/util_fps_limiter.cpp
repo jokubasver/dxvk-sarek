@@ -12,7 +12,7 @@ namespace dxvk {
 
   namespace {
 
-    // Wait budgets in 100 ns units, matching NtTimerDuration's period. The
+    // Wait budgets in 100 ns units, matching TimerDuration's period. The
     // slice step bounds how long any single sleep call may run, so one
     // mispredicted sleep costs at most a step rather than the rest of the
     // frame.
@@ -87,8 +87,8 @@ namespace dxvk {
       double absRate = m_isSoftLimit ? -frameRate : frameRate;
 
       m_targetInterval = absRate > 0.0
-        ? NtTimerDuration(int64_t(double(NtTimerDuration::period::den) / absRate))
-        : NtTimerDuration::zero();
+        ? TimerDuration(int64_t(double(TimerDuration::period::den) / absRate))
+        : TimerDuration::zero();
 
       if (isEnabled() && !m_initialized)
         initialize();
@@ -119,7 +119,7 @@ namespace dxvk {
     auto t0 = m_lastFrame;
     auto t1 = dxvk::high_resolution_clock::now();
 
-    auto frameTime = std::chrono::duration_cast<NtTimerDuration>(t1 - t0);
+    auto frameTime = std::chrono::duration_cast<TimerDuration>(t1 - t0);
 
     if (frameTime * 100 > m_targetInterval * 103 - m_deviation * 100) {
       // If we have a slow frame, reset the deviation since we do not want to
@@ -127,17 +127,17 @@ namespace dxvk {
       // deviation so the limiter only really nudges when the app is consistently
       // rendering faster than the target, which is the point of negative rates.
       if (!m_isSoftLimit)
-        m_deviation = NtTimerDuration::zero();
+        m_deviation = TimerDuration::zero();
     } else {
       // Don't call sleep if the amount of time to sleep is shorter
       // than the time the function calls are likely going to take
-      NtTimerDuration sleepDuration = m_targetInterval - m_deviation - frameTime;
+      TimerDuration sleepDuration = m_targetInterval - m_deviation - frameTime;
       t1 = sleep(t1, sleepDuration);
 
       // Compensate for any sleep inaccuracies in the next frame, and
       // limit cumulative deviation in order to avoid stutter in case we
       // have a number of slow frames immediately followed by a fast one.
-      frameTime = std::chrono::duration_cast<NtTimerDuration>(t1 - t0);
+      frameTime = std::chrono::duration_cast<TimerDuration>(t1 - t0);
       m_deviation += frameTime - m_targetInterval;
       m_deviation = std::min(m_deviation, m_targetInterval / 16);
     }
@@ -150,9 +150,9 @@ namespace dxvk {
     TimePoint now = dxvk::high_resolution_clock::now();
     TimePoint target = this->nextTarget(now);
 
-    NtTimerDuration remaining = std::chrono::duration_cast<NtTimerDuration>(target - now);
+    TimerDuration remaining = std::chrono::duration_cast<TimerDuration>(target - now);
 
-    m_nextFrame = remaining > NtTimerDuration::zero()
+    m_nextFrame = remaining > TimerDuration::zero()
       ? this->sleep(now, remaining)
       : now;
 
@@ -176,7 +176,7 @@ namespace dxvk {
     // Advance the cadence by exactly one interval. If the frame overran by
     // a whole interval or more the cadence is unrecoverable, so resynchronise
     // rather than issue a burst of zero-length waits trying to catch up.
-    auto overshoot = std::chrono::duration_cast<NtTimerDuration>(now - m_nextFrame);
+    auto overshoot = std::chrono::duration_cast<TimerDuration>(now - m_nextFrame);
 
     return overshoot >= m_targetInterval
       ? now + m_targetInterval
@@ -184,8 +184,8 @@ namespace dxvk {
   }
 
 
-  FpsLimiter::TimePoint FpsLimiter::sleep(TimePoint t0, NtTimerDuration duration) {
-    if (duration <= NtTimerDuration::zero())
+  FpsLimiter::TimePoint FpsLimiter::sleep(TimePoint t0, TimerDuration duration) {
+    if (duration <= TimerDuration::zero())
       return t0;
 
     switch (m_pacing) {
@@ -199,7 +199,7 @@ namespace dxvk {
   }
 
 
-  FpsLimiter::TimePoint FpsLimiter::sleepOnce(NtTimerDuration duration) {
+  FpsLimiter::TimePoint FpsLimiter::sleepOnce(TimerDuration duration) {
     if (NtDelayExecution) {
       LARGE_INTEGER ticks;
       ticks.QuadPart = -duration.count();
@@ -213,13 +213,13 @@ namespace dxvk {
   }
 
 
-  FpsLimiter::TimePoint FpsLimiter::spinUntil(TimePoint t0, NtTimerDuration duration) {
-    NtTimerDuration remaining = duration;
+  FpsLimiter::TimePoint FpsLimiter::spinUntil(TimePoint t0, TimerDuration duration) {
+    TimerDuration remaining = duration;
     TimePoint t1 = t0;
 
-    while (remaining > NtTimerDuration::zero()) {
+    while (remaining > TimerDuration::zero()) {
       t1 = dxvk::high_resolution_clock::now();
-      remaining -= std::chrono::duration_cast<NtTimerDuration>(t1 - t0);
+      remaining -= std::chrono::duration_cast<TimerDuration>(t1 - t0);
       t0 = t1;
     }
 
@@ -227,18 +227,18 @@ namespace dxvk {
   }
 
 
-  FpsLimiter::TimePoint FpsLimiter::sleepSliced(TimePoint t0, NtTimerDuration duration) {
-    NtTimerDuration margin = NtTimerDuration(SliceMarginTicks);
-    NtTimerDuration step   = NtTimerDuration(SliceStepTicks);
+  FpsLimiter::TimePoint FpsLimiter::sleepSliced(TimePoint t0, TimerDuration duration) {
+    TimerDuration margin = TimerDuration(SliceMarginTicks);
+    TimerDuration step   = TimerDuration(SliceStepTicks);
 
-    NtTimerDuration remaining = duration;
+    TimerDuration remaining = duration;
     TimePoint t1 = t0;
 
     // Sleep in bounded steps and re-measure after each one, so an inaccurate
     // sleep is corrected within this frame rather than carried into the next.
     while (remaining > margin) {
       t1 = this->sleepOnce(std::min(remaining - margin, step));
-      remaining -= std::chrono::duration_cast<NtTimerDuration>(t1 - t0);
+      remaining -= std::chrono::duration_cast<TimerDuration>(t1 - t0);
       t0 = t1;
     }
 
@@ -246,23 +246,23 @@ namespace dxvk {
   }
 
 
-  FpsLimiter::TimePoint FpsLimiter::sleepPrecise(TimePoint t0, NtTimerDuration duration) {
+  FpsLimiter::TimePoint FpsLimiter::sleepPrecise(TimePoint t0, TimerDuration duration) {
     // On wine, we can rely on NtDelayExecution waiting for more or
     // less exactly the desired amount of time, and we want to avoid
     // spamming QueryPerformanceCounter for performance reasons.
     // On Windows, we busy-wait for the last couple of milliseconds
     // since sleeping is highly inaccurate and inconsistent.
-    NtTimerDuration sleepThreshold = m_sleepThreshold;
+    TimerDuration sleepThreshold = m_sleepThreshold;
 
-    if (m_sleepGranularity != NtTimerDuration::zero())
+    if (m_sleepGranularity != TimerDuration::zero())
       sleepThreshold += duration / 6;
 
-    NtTimerDuration remaining = duration;
+    TimerDuration remaining = duration;
     TimePoint t1 = t0;
 
     while (remaining > sleepThreshold) {
       t1 = this->sleepOnce(remaining - sleepThreshold);
-      remaining -= std::chrono::duration_cast<NtTimerDuration>(t1 - t0);
+      remaining -= std::chrono::duration_cast<TimerDuration>(t1 - t0);
       t0 = t1;
     }
 
@@ -287,16 +287,16 @@ namespace dxvk {
       // Wine's implementation of these functions is a stub as of 6.10, which is fine
       // since it uses select() in NtDelayExecution. This is only relevant for Windows.
       if (NtQueryTimerResolution && !NtQueryTimerResolution(&min, &max, &cur)) {
-        m_sleepGranularity = NtTimerDuration(cur);
+        m_sleepGranularity = TimerDuration(cur);
 
         if (NtSetTimerResolution && !NtSetTimerResolution(max, TRUE, &cur)) {
           Logger::info(str::format("Setting timer interval to ", (double(max) / 10.0), " us"));
-          m_sleepGranularity = NtTimerDuration(max);
+          m_sleepGranularity = TimerDuration(max);
         }
       }
     } else {
       // Assume 1ms sleep granularity by default
-      m_sleepGranularity = NtTimerDuration(10000);
+      m_sleepGranularity = TimerDuration(10000);
     }
 
     m_sleepThreshold = 4 * m_sleepGranularity;
