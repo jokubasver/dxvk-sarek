@@ -103,7 +103,12 @@ namespace dxvk::wsi {
     bool (*createDriver)(WsiDriver **driver);
   };
 
+#if defined(DXVK_WSI_WIN32)
   extern WsiBootstrap Win32WSI;
+#endif
+#if defined(DXVK_WSI_SDL2)
+  extern WsiBootstrap Sdl2WSI;
+#endif
 
   void init();
   void quit();

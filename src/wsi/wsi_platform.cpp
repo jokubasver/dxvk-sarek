@@ -6,13 +6,18 @@
 
 namespace dxvk::wsi {
   static const WsiBootstrap *wsiBootstrap[] = {
+#if defined(DXVK_WSI_WIN32)
     &Win32WSI,
+#endif
+#if defined(DXVK_WSI_SDL2)
+    &Sdl2WSI,
+#endif
   };
 
   static WsiDriver* createDriver() {
     std::string hint = dxvk::env::getEnvVar("DXVK_WSI_DRIVER");
     if (hint == "")
-      hint = "Win32";
+      hint = wsiBootstrap[0]->name;
 
     for (const WsiBootstrap *b : wsiBootstrap) {
       WsiDriver *driver = nullptr;
