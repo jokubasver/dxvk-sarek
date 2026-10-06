@@ -17,7 +17,9 @@ namespace dxvk {
 
   
   void D3D9Cursor::ResetHardwareCursor() {
+#ifdef _WIN32
     ::DestroyCursor(m_hCursor);
+#endif
     m_hCursor = nullptr;
   }
 
@@ -39,11 +41,13 @@ namespace dxvk {
     if (unlikely(m_sCursor.Bitmap != nullptr))
       return;
 
+#ifdef _WIN32
     POINT currentPos = { };
     if (::GetCursorPos(&currentPos) && currentPos == POINT{ X, Y })
         return;
 
     ::SetCursorPos(X, Y);
+#endif
   }
 
 
@@ -52,8 +56,10 @@ namespace dxvk {
     if (unlikely(m_hCursor == nullptr && m_sCursor.Bitmap == nullptr))
       return m_visible;
 
+#ifdef _WIN32
     if (m_hCursor != nullptr)
       ::SetCursor(bShow ? m_hCursor : nullptr);
+#endif
 
     return std::exchange(m_visible, bShow);
   }
@@ -63,6 +69,7 @@ namespace dxvk {
     if (m_sCursor.Bitmap != nullptr)
       ResetSoftwareCursor();
 
+#ifdef _WIN32
     CursorMask mask;
     std::memset(mask, ~0, sizeof(mask));
 
@@ -80,13 +87,16 @@ namespace dxvk {
 
     ::DeleteObject(info.hbmMask);
     ::DeleteObject(info.hbmColor);
+#endif
 
     ShowCursor(m_visible);
   }
 
   void D3D9Cursor::SetSoftwareCursor(UINT XHotSpot, UINT YHotSpot, Com<IDirect3DTexture9>&& pCursorBitmap) {
+#ifdef _WIN32
     // Make sure to hide the win32 cursor
     ::SetCursor(nullptr);
+#endif
 
     if (m_hCursor != nullptr)
       ResetHardwareCursor();

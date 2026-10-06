@@ -272,6 +272,7 @@ namespace dxvk {
 
 
   void FpsLimiter::initialize() {
+#ifdef _WIN32
     HMODULE ntdll = ::GetModuleHandleW(L"ntdll.dll");
 
     if (ntdll) {
@@ -298,6 +299,11 @@ namespace dxvk {
       // Assume 1ms sleep granularity by default
       m_sleepGranularity = TimerDuration(10000);
     }
+#else
+    // Native builds sleep with the C++ library (sleepOnce), which on Linux
+    // wakes up well within a millisecond.
+    m_sleepGranularity = TimerDuration(10000);
+#endif
 
     m_sleepThreshold = 4 * m_sleepGranularity;
     m_lastFrame = dxvk::high_resolution_clock::now();

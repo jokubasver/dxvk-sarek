@@ -1,5 +1,7 @@
 #include "vulkan_loader.h"
 
+#include "../util/util_win32_compat.h"
+
 namespace dxvk::vk {
 
   static HMODULE loadVulkanLibrary() {

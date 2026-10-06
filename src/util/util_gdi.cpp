@@ -3,6 +3,8 @@
 
 namespace dxvk {
 
+#ifdef _WIN32
+
   HMODULE GetGDIModule() {
     static HMODULE module = LoadLibraryA("gdi32.dll");
     return module;
@@ -40,5 +42,22 @@ namespace dxvk {
     Logger::warn("D3DKMTEscape: Unable to query proc address.");
     return -1;
   }
+
+#else
+
+  // GDI is Windows only.
+  NTSTATUS D3DKMTCreateDCFromMemory(D3DKMT_CREATEDCFROMMEMORY* Arg1) {
+    return -1;
+  }
+
+  NTSTATUS D3DKMTDestroyDCFromMemory(D3DKMT_DESTROYDCFROMMEMORY* Arg1) {
+    return -1;
+  }
+
+  NTSTATUS D3DKMTEscape(const D3DKMT_ESCAPE* Arg1) {
+    return -1;
+  }
+
+#endif
 
 }

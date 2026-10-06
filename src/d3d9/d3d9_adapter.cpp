@@ -63,6 +63,7 @@ namespace dxvk {
 
     const auto& props = m_adapter->deviceProperties();
 
+#ifdef _WIN32
     DISPLAY_DEVICEA device = { };
     device.cb = sizeof(device);
 
@@ -70,6 +71,14 @@ namespace dxvk {
       Logger::err("D3D9Adapter::GetAdapterIdentifier: Failed to query display info");
       return D3DERR_INVALIDCALL;
     }
+#else
+    // Native builds: the GDI-style name the WSI driver gives the display.
+    struct { char DeviceName[32]; } device = { };
+    WCHAR displayName[32] = { };
+
+    if (wsi::getDisplayName(wsi::enumMonitors(m_displayIndex), displayName))
+      str::strlcpy(device.DeviceName, str::fromws(displayName).c_str(), sizeof(device.DeviceName));
+#endif
 
     GUID guid          = bit::cast<GUID>(m_adapter->devicePropertiesExt().coreDeviceId.deviceUUID);
 

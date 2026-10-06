@@ -7,6 +7,8 @@
 
 namespace dxvk {
 
+#ifdef _WIN32
+
   #define IOCTL_SHARED_GPU_RESOURCE_OPEN             CTL_CODE(FILE_DEVICE_VIDEO, 1, METHOD_BUFFERED, FILE_WRITE_ACCESS)
 
   HANDLE openKmtHandle(HANDLE kmt_handle) {
@@ -45,5 +47,22 @@ namespace dxvk {
       *metadataSize = retSize;
     return ret;
   }
+
+#else
+
+  // Shared GPU resources are a Windows kernel interface.
+  HANDLE openKmtHandle(HANDLE kmt_handle) {
+    return INVALID_HANDLE_VALUE;
+  }
+
+  bool setSharedMetadata(HANDLE handle, void *buf, uint32_t bufSize) {
+    return false;
+  }
+
+  bool getSharedMetadata(HANDLE handle, void *buf, uint32_t bufSize, uint32_t *metadataSize) {
+    return false;
+  }
+
+#endif
 
 }

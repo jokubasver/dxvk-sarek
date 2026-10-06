@@ -9,6 +9,8 @@
 namespace dxvk {
 
 
+#ifdef _WIN32
+
   struct D3D9WindowData {
     bool unicode;
     bool filter;
@@ -171,6 +173,26 @@ namespace dxvk {
       CallWindowProcW, CallWindowProcA, unicode,
         windowData.proc, window, message, wparam, lparam);
   }
+
+#else
+
+  // Native builds: the application owns its window and its events (SDL), so
+  // there is no window procedure to hook.
+  class D3D9WindowMessageFilter {
+
+  public:
+
+    D3D9WindowMessageFilter(HWND window, bool filter = true) { }
+
+  };
+
+
+  void ResetWindowProc(HWND window) { }
+
+
+  void HookWindowProc(HWND window, D3D9SwapChainEx* swapchain) { }
+
+#endif
 
 
   static uint16_t MapGammaControlPoint(float x) {

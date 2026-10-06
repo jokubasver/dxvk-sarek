@@ -40,8 +40,10 @@ namespace dxvk {
     BOOL ShowCursor(BOOL bShow);
 
     ~D3D9Cursor() {
+#ifdef _WIN32
       if (m_hCursor != nullptr)
         ::DestroyCursor(m_hCursor);
+#endif
     }
 
     void SetHardwareCursor(UINT XHotSpot, UINT YHotSpot, const CursorBitmap& bitmap);
@@ -62,7 +64,12 @@ namespace dxvk {
 
     D3D9_SOFTWARE_CURSOR  m_sCursor;
 
+#ifdef _WIN32
     HCURSOR               m_hCursor = nullptr;
+#else
+    // Native builds have no hardware cursor: the application draws its own.
+    void*                 m_hCursor = nullptr;
+#endif
 
   };
 
