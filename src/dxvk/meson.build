@@ -92,8 +92,6 @@ dxvk_src = [
   'dxvk_meta_mipgen.cpp',
   'dxvk_meta_pack.cpp',
   'dxvk_meta_resolve.cpp',
-  'dxvk_openvr.cpp',
-  'dxvk_openxr.cpp',
   'dxvk_options.cpp',
   'dxvk_pipecache.cpp',
   'dxvk_pipecompiler.cpp',
@@ -114,13 +112,17 @@ dxvk_src = [
   'dxvk_unbound.cpp',
   'dxvk_util.cpp',
 
-  'platform/dxvk_win32_exts.cpp',
-
   'hud/dxvk_hud.cpp',
   'hud/dxvk_hud_font.cpp',
   'hud/dxvk_hud_item.cpp',
   'hud/dxvk_hud_renderer.cpp',
 ]
+
+if platform == 'windows'
+  dxvk_src += [ 'platform/dxvk_win32_exts.cpp', 'dxvk_openvr.cpp', 'dxvk_openxr.cpp' ]
+else
+  dxvk_src += [ 'platform/dxvk_wsi_exts.cpp' ]
+endif
 
 thread_dep = dependency('threads')
 

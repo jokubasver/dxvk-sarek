@@ -112,7 +112,27 @@ if platform == 'windows'
     )
   endif
 
+  dxvk_name_prefix = ''
   compiler_args += ['-DDXVK_WSI_WIN32']
+else
+  wrc           = find_program('touch')
+  wrc_generator = generator(wrc, output : [ '@BASENAME@_ignored.h' ], arguments : [ '@OUTPUT@' ] )
+
+  dxvk_include_dirs += [
+    './include/native',
+    './include/native/windows',
+    './include/native/directx'
+  ]
+
+  lib_sdl2 = dependency('sdl2', required: true)
+  compiler_args += ['-DDXVK_WSI_SDL2']
+
+  dxvk_name_prefix = 'libdxvk_'
+
+  link_args += [
+    '-static-libgcc',
+    '-static-libstdc++',
+  ]
 endif
 
 dxvk_include_path = include_directories(dxvk_include_dirs)
@@ -145,9 +165,5 @@ dxvk_version = vcs_tag(
   input:  'version.h.in',
   output: 'version.h',
 )
-
-if platform != 'windows'
-  error('Non-Windows platforms not supported... yet.')
-endif
 
 subdir('src')
