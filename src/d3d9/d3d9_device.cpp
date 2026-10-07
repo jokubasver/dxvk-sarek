@@ -4330,6 +4330,10 @@ namespace dxvk {
     // Ensure we support real BC formats and unofficial vendor ones.
     enabled.core.features.textureCompressionBC = supported.core.features.textureCompressionBC;
 
+    // ASTC, as FOURCC formats (D3D9Format::ASTC*), for GPUs without BC.
+    enabled.core.features.textureCompressionASTC_LDR = supported.core.features.textureCompressionASTC_LDR;
+    enabled.extTextureCompressionAstcHdr.textureCompressionASTC_HDR = supported.extTextureCompressionAstcHdr.textureCompressionASTC_HDR;
+
     enabled.extDepthClipEnable.depthClipEnable = supported.extDepthClipEnable.depthClipEnable;
     enabled.extHostQueryReset.hostQueryReset = supported.extHostQueryReset.hostQueryReset;
 

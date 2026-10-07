@@ -246,6 +246,8 @@ namespace dxvk {
                 || !required.extRobustness2.robustImageAccess2)
         && (m_deviceFeatures.extRobustness2.nullDescriptor
                 || !required.extRobustness2.nullDescriptor)
+        && (m_deviceFeatures.extTextureCompressionAstcHdr.textureCompressionASTC_HDR
+                || !required.extTextureCompressionAstcHdr.textureCompressionASTC_HDR)
         && (m_deviceFeatures.extTransformFeedback.transformFeedback
                 || !required.extTransformFeedback.transformFeedback)
         && (m_deviceFeatures.extVertexAttributeDivisor.vertexAttributeInstanceRateDivisor
@@ -267,7 +269,7 @@ namespace dxvk {
           DxvkDeviceFeatures  enabledFeatures) {
     DxvkDeviceExtensions devExtensions;
 
-    std::array<DxvkExt*, 32> devExtensionList = {{
+    std::array<DxvkExt*, 33> devExtensionList = {{
       &devExtensions.amdMemoryOverallocationBehaviour,
       &devExtensions.amdShaderFragmentMask,
       &devExtensions.ext4444Formats,
@@ -284,6 +286,7 @@ namespace dxvk {
       &devExtensions.extShaderDemoteToHelperInvocation,
       &devExtensions.extShaderStencilExport,
       &devExtensions.extShaderViewportIndexLayer,
+      &devExtensions.extTextureCompressionAstcHdr,
       &devExtensions.extTransformFeedback,
       &devExtensions.extVertexAttributeDivisor,
       &devExtensions.khrBufferDeviceAddress,
@@ -405,6 +408,11 @@ namespace dxvk {
     if (devExtensions.extNonSeamlessCubeMap) {
       enabledFeatures.extNonSeamlessCubeMap.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_NON_SEAMLESS_CUBE_MAP_FEATURES_EXT;
       enabledFeatures.extNonSeamlessCubeMap.pNext = std::exchange(enabledFeatures.core.pNext, &enabledFeatures.extNonSeamlessCubeMap);
+    }
+
+    if (devExtensions.extTextureCompressionAstcHdr) {
+      enabledFeatures.extTextureCompressionAstcHdr.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TEXTURE_COMPRESSION_ASTC_HDR_FEATURES_EXT;
+      enabledFeatures.extTextureCompressionAstcHdr.pNext = std::exchange(enabledFeatures.core.pNext, &enabledFeatures.extTextureCompressionAstcHdr);
     }
 
     if (devExtensions.extShaderDemoteToHelperInvocation) {
@@ -738,6 +746,11 @@ namespace dxvk {
       m_deviceFeatures.extRobustness2.pNext = std::exchange(m_deviceFeatures.core.pNext, &m_deviceFeatures.extRobustness2);
     }
 
+    if (m_deviceExtensions.supports(VK_EXT_TEXTURE_COMPRESSION_ASTC_HDR_EXTENSION_NAME)) {
+      m_deviceFeatures.extTextureCompressionAstcHdr.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TEXTURE_COMPRESSION_ASTC_HDR_FEATURES_EXT;
+      m_deviceFeatures.extTextureCompressionAstcHdr.pNext = std::exchange(m_deviceFeatures.core.pNext, &m_deviceFeatures.extTextureCompressionAstcHdr);
+    }
+
     if (m_deviceExtensions.supports(VK_EXT_SHADER_DEMOTE_TO_HELPER_INVOCATION_EXTENSION_NAME)) {
       m_deviceFeatures.extShaderDemoteToHelperInvocation.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_DEMOTE_TO_HELPER_INVOCATION_FEATURES_EXT;
       m_deviceFeatures.extShaderDemoteToHelperInvocation.pNext = std::exchange(m_deviceFeatures.core.pNext, &m_deviceFeatures.extShaderDemoteToHelperInvocation);
@@ -892,6 +905,7 @@ namespace dxvk {
       "\n  multiViewport                          : ", features.core.features.multiViewport ? "1" : "0",
       "\n  samplerAnisotropy                      : ", features.core.features.samplerAnisotropy ? "1" : "0",
       "\n  textureCompressionBC                   : ", features.core.features.textureCompressionBC ? "1" : "0",
+      "\n  textureCompressionASTC_LDR             : ", features.core.features.textureCompressionASTC_LDR ? "1" : "0",
       "\n  occlusionQueryPrecise                  : ", features.core.features.occlusionQueryPrecise ? "1" : "0",
       "\n  pipelineStatisticsQuery                : ", features.core.features.pipelineStatisticsQuery ? "1" : "0",
       "\n  vertexPipelineStoresAndAtomics         : ", features.core.features.vertexPipelineStoresAndAtomics ? "1" : "0",
@@ -927,6 +941,8 @@ namespace dxvk {
       "\n  nullDescriptor                         : ", features.extRobustness2.nullDescriptor ? "1" : "0",
       "\n", VK_EXT_SHADER_DEMOTE_TO_HELPER_INVOCATION_EXTENSION_NAME,
       "\n  shaderDemoteToHelperInvocation         : ", features.extShaderDemoteToHelperInvocation.shaderDemoteToHelperInvocation ? "1" : "0",
+      "\n", VK_EXT_TEXTURE_COMPRESSION_ASTC_HDR_EXTENSION_NAME,
+      "\n  textureCompressionASTC_HDR             : ", features.extTextureCompressionAstcHdr.textureCompressionASTC_HDR ? "1" : "0",
       "\n", VK_EXT_TRANSFORM_FEEDBACK_EXTENSION_NAME,
       "\n  transformFeedback                      : ", features.extTransformFeedback.transformFeedback ? "1" : "0",
       "\n  geometryStreams                        : ", features.extTransformFeedback.geometryStreams ? "1" : "0",
