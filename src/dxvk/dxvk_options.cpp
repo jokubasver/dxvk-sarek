@@ -12,6 +12,7 @@ namespace dxvk {
     hideIntegratedGraphics = config.getOption<bool>   ("dxvk.hideIntegratedGraphics", false);
     deviceFilter          = config.getOption<std::string>("dxvk.deviceFilter",        "");
     tilerMode             = config.getOption<Tristate>("dxvk.tilerMode",              Tristate::Auto);
+    pipelineCache         = config.getOption<Tristate>("dxvk.pipelineCache",          Tristate::Auto);
     zeroMappedMemory      = config.getOption<bool>("dxvk.zeroMappedMemory", false);
     lowerSinCos           = config.getOption<Tristate>("dxvk.lowerSinCos",            Tristate::Auto);
     auto budget = config.getOption<int32_t>("dxvk.maxMemoryBudget", 0);

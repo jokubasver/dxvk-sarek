@@ -33,6 +33,10 @@ namespace dxvk {
     // render-pass-op side is detected but not yet acted on.
     Tristate tilerMode = Tristate::Auto;
 
+    /// Hand the driver a pipeline cache and keep it on disk beside
+    /// the state cache, for drivers without a disk cache of their own
+    Tristate pipelineCache = Tristate::Auto;
+
     // Zero-initialize host-visible mapped memory on allocation.
     // Works around games that assume freshly mapped buffers are clean.
     bool zeroMappedMemory = false;

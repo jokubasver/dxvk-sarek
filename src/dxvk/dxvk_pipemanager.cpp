@@ -58,7 +58,7 @@ namespace dxvk {
           DxvkDevice*         device,
           DxvkRenderPassPool* passManager)
     : m_device       (device)
-    , m_cache        (new DxvkPipelineCache(device->vkd()))
+    , m_cache        (new DxvkPipelineCache(device, is_state_cache_enabled(device)))
     , m_stateCache   (is_state_cache_enabled(device)
           ? new DxvkStateCache(device, this, passManager)
           : nullptr)
