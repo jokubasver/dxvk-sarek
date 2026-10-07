@@ -633,8 +633,10 @@ namespace dxvk {
                                   /* | D3DVTXPCAPS_NO_TEXGEN_NONLOCALVIEWER*/;
     // Max Active Lights
     pCaps->MaxActiveLights           = caps::MaxEnabledLights;
-    // Max User Clip Planes
-    pCaps->MaxUserClipPlanes         = MaxClipPlanes;
+    // Max User Clip Planes. Without clip distances (Mali) the planes would be
+    // ignored, so report none: applications then clip in their projection.
+    pCaps->MaxUserClipPlanes         = m_adapter->features().core.features.shaderClipDistance
+                                     ? MaxClipPlanes : 0;
     // Max Vertex Blend Matrices
     pCaps->MaxVertexBlendMatrices    = 4;
     // Max Vertex Blend Matrix Index
