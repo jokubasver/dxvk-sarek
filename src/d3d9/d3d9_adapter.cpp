@@ -872,6 +872,9 @@ namespace dxvk {
     else
       checkFlags |= VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT;
 
+    if (Usage & D3DUSAGE_QUERY_FILTER)
+      checkFlags |= VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT;
+
     VkFormatFeatureFlags checkFlagsMipGen = checkFlags;
 
     if (Usage & D3DUSAGE_AUTOGENMIPMAP) {
