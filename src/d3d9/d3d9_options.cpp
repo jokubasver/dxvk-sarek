@@ -108,8 +108,11 @@ namespace dxvk {
                             0, 0);
     applyTristate(this->generalHazards, config.getOption<Tristate>("d3d9.generalHazards", Tristate::Auto));
 
+    // Arm's Mali driver (g29p1, Mali-G31) crashes compiling a fragment shader
+    // that declares a plain and a depth-compare image at one binding.
     this->splitSamplerSlots = adapter != nullptr
-                           && adapter->matchesDriver(VK_DRIVER_ID_MOLTENVK);
+                           && (adapter->matchesDriver(VK_DRIVER_ID_MOLTENVK)
+                            || adapter->matchesDriver(VK_DRIVER_ID_ARM_PROPRIETARY));
     applyTristate(this->splitSamplerSlots, config.getOption<Tristate>("d3d9.splitSamplerSlots", Tristate::Auto));
 
     std::string floatEmulation = Config::toLower(config.getOption<std::string>("d3d9.floatEmulation", "auto"));
