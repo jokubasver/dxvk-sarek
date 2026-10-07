@@ -712,6 +712,14 @@ namespace dxvk {
             D3D9CommonTexture*      pResource,
             UINT                    Subresource);
 
+    static void PackUnorm16AsFloat16(
+            uint16_t*             pDst,
+      const uint8_t*              pSrc,
+            VkExtent3D            BlockCount,
+            uint32_t              ComponentsPerBlock,
+            VkDeviceSize          SrcRowPitch,
+            VkDeviceSize          SrcSlicePitch);
+
     void UpdateTextureFromBuffer(
             D3D9CommonTexture*      pDestTexture,
             D3D9CommonTexture*      pSrcTexture,

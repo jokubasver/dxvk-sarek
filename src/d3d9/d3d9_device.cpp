@@ -4850,6 +4850,57 @@ namespace dxvk {
     return D3D_OK;
   }
 
+  // 16 bit UNORM to fp16 bits, for every UNORM value (128 KiB, made once).
+  static const uint16_t* Unorm16ToFloat16Table() {
+    static const std::vector<uint16_t> table = [] {
+      std::vector<uint16_t> t(65536);
+      for (uint32_t v = 0; v < 65536; v++) {
+        float f = float(v) / 65535.0f;
+        uint32_t x;
+        std::memcpy(&x, &f, sizeof(x));
+        uint32_t e = (x >> 23) & 0xff;
+        uint32_t h;
+        if (e < 103) {
+          h = 0;
+        } else if (e < 113) {
+          // fp16 denormal: the full mantissa shifted down, rounded
+          uint32_t m = (x & 0x7fffff) | 0x800000;
+          uint32_t shift = 126 - e;
+          h = (m >> shift) + ((m >> (shift - 1)) & 1);
+        } else {
+          // a carry from rounding moves into the exponent, as it should
+          h = (((e - 112) << 10) | ((x >> 13) & 0x3ff)) + ((x >> 12) & 1);
+        }
+        t[v] = uint16_t(h);
+      }
+      return t;
+    }();
+    return table.data();
+  }
+
+
+  void D3D9DeviceEx::PackUnorm16AsFloat16(
+          uint16_t*             pDst,
+    const uint8_t*              pSrc,
+          VkExtent3D            BlockCount,
+          uint32_t              ComponentsPerBlock,
+          VkDeviceSize          SrcRowPitch,
+          VkDeviceSize          SrcSlicePitch) {
+    const uint16_t* table = Unorm16ToFloat16Table();
+    const uint32_t rowValues = BlockCount.width * ComponentsPerBlock;
+
+    for (uint32_t z = 0; z < BlockCount.depth; z++) {
+      for (uint32_t y = 0; y < BlockCount.height; y++) {
+        const uint16_t* src = reinterpret_cast<const uint16_t*>(
+          pSrc + z * SrcSlicePitch + y * SrcRowPitch);
+
+        for (uint32_t i = 0; i < rowValues; i++)
+          *pDst++ = table[src[i]];
+      }
+    }
+  }
+
+
   void D3D9DeviceEx::UpdateTextureFromBuffer(
     D3D9CommonTexture* pDestTexture,
     D3D9CommonTexture* pSrcTexture,
@@ -4878,8 +4929,9 @@ namespace dxvk {
     VkExtent3D srcTexLevelExtentBlockCount = util::computeBlockCount(srcTexLevelExtent, formatInfo->blockSize);
 
     auto convertFormat = pDestTexture->GetFormatMapping().ConversionFormatInfo;
+    const bool toFloat16 = convertFormat.FormatType == D3D9ConversionFormat_A16B16G16R16_Float16;
 
-    if (likely(convertFormat.FormatType == D3D9ConversionFormat_None)) {
+    if (likely(convertFormat.FormatType == D3D9ConversionFormat_None || toFloat16)) {
       VkOffset3D alignedDestOffset = {
         int32_t(alignDown(DestOffset.x, formatInfo->blockSize.width)),
         int32_t(alignDown(DestOffset.y, formatInfo->blockSize.height)),
@@ -4909,7 +4961,18 @@ namespace dxvk {
       VkDeviceSize sliceAlignment = 1;
       VkDeviceSize rowAlignment = 1;
       DxvkBufferSlice copySrcSlice;
-      if (pSrcTexture->DoesStagingBufferUploads(SrcSubresource)) {
+      if (toFloat16) {
+        // The mapped buffer holds the game's 16 bit UNORM data, the image is
+        // fp16 (same size per texel): pack the region converted.
+        VkDeviceSize dirtySize = extentBlockCount.width * extentBlockCount.height * extentBlockCount.depth * formatInfo->elementSize;
+        D3D9BufferSlice slice = AllocTempBuffer<false>(dirtySize);
+        copySrcSlice = slice.slice;
+        const uint8_t* srcData = reinterpret_cast<const uint8_t*>(srcSlice.mapPtr) + copySrcOffset;
+        PackUnorm16AsFloat16(
+          reinterpret_cast<uint16_t*>(slice.mapPtr), srcData, extentBlockCount,
+          formatInfo->elementSize / sizeof(uint16_t),
+          pitch, pitch * srcTexLevelExtentBlockCount.height);
+      } else if (pSrcTexture->DoesStagingBufferUploads(SrcSubresource)) {
         VkDeviceSize dirtySize = extentBlockCount.width * extentBlockCount.height * extentBlockCount.depth * formatInfo->elementSize;
         D3D9BufferSlice slice = AllocTempBuffer<false>(dirtySize);
         copySrcSlice = slice.slice;

@@ -175,8 +175,22 @@ namespace dxvk {
     D3D9ConversionFormat_W11V11U10,
     D3D9ConversionFormat_NV12,
     D3D9ConversionFormat_YV12,
+    // A16B16G16R16 kept as fp16 where the GPU can't filter 16 bit UNORM
+    // (Mali). Converted on the CPU while uploading, not by a compute shader.
+    D3D9ConversionFormat_A16B16G16R16_Float16,
     D3D9ConversionFormat_Count
   };
+
+  /**
+   * \brief Whether a format conversion runs as a compute shader
+   *
+   * The fp16 stand-in for A16B16G16R16 is converted on upload instead,
+   * so its image and buffers need no storage or texel buffer usage.
+   */
+  inline bool IsShaderConversion(D3D9ConversionFormat Format) {
+    return Format != D3D9ConversionFormat_None
+        && Format != D3D9ConversionFormat_A16B16G16R16_Float16;
+  }
 
   struct D3D9_CONVERSION_FORMAT_INFO {
     D3D9ConversionFormat FormatType     = D3D9ConversionFormat_None;
@@ -263,6 +277,7 @@ namespace dxvk {
     bool m_x4r4g4b4Support;
     bool m_w11v11u10Support;
     bool m_d32supportFinal;
+    bool m_a16b16g16r16Float16;
   };
 
 }

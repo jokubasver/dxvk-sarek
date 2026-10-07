@@ -632,6 +632,16 @@ namespace dxvk {
 
     if (!m_a4r4g4b4Support)
       Logger::warn("D3D9: VK_FORMAT_A4R4G4B4_UNORM_PACK16_EXT -> VK_FORMAT_B4G4R4A4_UNORM_PACK16");
+
+    // Mali can't filter R16G16B16A16_UNORM, which D3D9 games filter (Source's
+    // integer HDR lightmaps): those textures become fp16, converted on upload.
+    const VkFormatFeatureFlags filterable = VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT
+                                          | VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT;
+    m_a16b16g16r16Float16 = !CheckImageFormatSupport(adapter, VK_FORMAT_R16G16B16A16_UNORM, filterable)
+                         &&  CheckImageFormatSupport(adapter, VK_FORMAT_R16G16B16A16_SFLOAT, filterable);
+
+    if (m_a16b16g16r16Float16)
+      Logger::info("D3D9: VK_FORMAT_R16G16B16A16_UNORM -> VK_FORMAT_R16G16B16A16_SFLOAT (no linear filtering)");
   }
 
   D3D9_VK_FORMAT_MAPPING D3D9VkFormatTable::GetFormatMapping(
@@ -652,6 +662,12 @@ namespace dxvk {
 
     if (Format == D3D9Format::D32 && !m_d32supportFinal)
       return D3D9_VK_FORMAT_MAPPING();
+
+    if (Format == D3D9Format::A16B16G16R16 && m_a16b16g16r16Float16) {
+      mapping.FormatColor = VK_FORMAT_R16G16B16A16_SFLOAT;
+      mapping.ConversionFormatInfo = { D3D9ConversionFormat_A16B16G16R16_Float16, 1u,
+        VK_FORMAT_R16G16B16A16_SFLOAT };
+    }
 
     if (!m_d24s8Support && mapping.FormatColor == VK_FORMAT_D24_UNORM_S8_UINT)
       mapping.FormatColor = (mapping.Aspect & VK_IMAGE_ASPECT_STENCIL_BIT) ? VK_FORMAT_D32_SFLOAT_S8_UINT : VK_FORMAT_D32_SFLOAT;

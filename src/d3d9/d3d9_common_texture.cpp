@@ -206,7 +206,7 @@ namespace dxvk {
     info.access = VK_ACCESS_TRANSFER_READ_BIT
                 | VK_ACCESS_TRANSFER_WRITE_BIT;
 
-    if (m_mapping.ConversionFormatInfo.FormatType != D3D9ConversionFormat_None) {
+    if (IsShaderConversion(m_mapping.ConversionFormatInfo.FormatType)) {
       info.usage  |= VK_BUFFER_USAGE_UNIFORM_TEXEL_BUFFER_BIT;
       info.stages |= VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
     }
@@ -279,7 +279,7 @@ namespace dxvk {
       // TODO: validate metadata?
     }
 
-    if (m_mapping.ConversionFormatInfo.FormatType != D3D9ConversionFormat_None) {
+    if (IsShaderConversion(m_mapping.ConversionFormatInfo.FormatType)) {
       imageInfo.usage  |= VK_IMAGE_USAGE_STORAGE_BIT;
       imageInfo.stages |= VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
     }
