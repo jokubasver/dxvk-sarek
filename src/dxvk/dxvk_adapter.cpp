@@ -789,6 +789,13 @@ namespace dxvk {
     }
 
     m_vki->vkGetPhysicalDeviceFeatures2(m_handle, &m_deviceFeatures.core);
+
+    // Arm's Mali driver (g29p1 on a Mali-G31) crashes in its shader compiler
+    // building pipelines on a device with null descriptors enabled, even for
+    // shaders it compiles fine otherwise. Unbound resources then use DXVK's
+    // dummy resources instead.
+    if (matchesDriver(VK_DRIVER_ID_ARM_PROPRIETARY))
+      m_deviceFeatures.extRobustness2.nullDescriptor = VK_FALSE;
   }
 
 
