@@ -165,12 +165,106 @@ namespace dxvk {
     for (uint32_t u : bit::BitMask(info.undefinedInputs))
       eliminateInput(spirvCode, u);
 
+    // Drop a point size output that the pipeline does not use
+    if (info.noPointSize)
+      eliminatePointSize(spirvCode);
+
     return DxvkShaderModule(vkd, this, spirvCode);
   }
   
   
   void DxvkShader::dump(std::ostream& outputStream) const {
     m_code.decompress().store(outputStream);
+  }
+
+
+  void DxvkShader::eliminatePointSize(SpirvCodeBuffer& code) {
+    // A point size output stops Mali GPUs from splitting the vertex shader
+    // into a position part, run for every vertex, and a varying part that
+    // only runs for vertices of primitives that survive culling (IDVS).
+    // D3D9 vertex shaders always write one, which only point lists need.
+    // Only a plain output variable is handled, not a gl_PerVertex member.
+    uint32_t pointSizeId = 0;
+
+    for (auto ins : code) {
+      if (ins.opCode() == spv::OpDecorate
+       && ins.arg(2) == spv::DecorationBuiltIn
+       && ins.arg(3) == spv::BuiltInPointSize)
+        pointSizeId = ins.arg(1);
+
+      if (ins.opCode() == spv::OpFunction)
+        break;
+    }
+
+    if (!pointSizeId)
+      return;
+
+    // The variable can go if nothing but its declaration, names,
+    // decorations and stores refer to it.
+    std::vector<std::pair<uint32_t, uint32_t>> erased;
+
+    for (auto ins : code) {
+      switch (ins.opCode()) {
+        case spv::OpEntryPoint:
+          break;
+
+        case spv::OpName:
+        case spv::OpDecorate:
+          if (ins.arg(1) == pointSizeId)
+            erased.push_back({ ins.offset(), ins.length() });
+          break;
+
+        case spv::OpVariable:
+          if (ins.arg(2) == pointSizeId)
+            erased.push_back({ ins.offset(), ins.length() });
+          break;
+
+        case spv::OpStore:
+          if (ins.arg(2) == pointSizeId)
+            return;
+          if (ins.arg(1) == pointSizeId)
+            erased.push_back({ ins.offset(), ins.length() });
+          break;
+
+        default:
+          for (uint32_t i = 1; i < ins.length(); i++) {
+            if (ins.arg(i) == pointSizeId)
+              return;
+          }
+      }
+    }
+
+    // Erase from the back so that the offsets stay valid
+    std::sort(erased.begin(), erased.end(), [] (const auto& a, const auto& b) {
+      return a.first > b.first;
+    });
+
+    for (const auto& e : erased) {
+      code.beginInsertion(e.first);
+      code.erase(e.second);
+    }
+
+    code.endInsertion();
+
+    // Remove the variable from the interface list
+    for (auto ins : code) {
+      if (ins.opCode() == spv::OpEntryPoint) {
+        uint32_t argIdx = 3 + code.strLen(ins.chr(3));
+
+        while (argIdx < ins.length()) {
+          if (ins.arg(argIdx) == pointSizeId) {
+            ins.setArg(0, spv::OpEntryPoint | ((ins.length() - 1) << spv::WordCountShift));
+
+            code.beginInsertion(ins.offset() + argIdx);
+            code.erase(1);
+            code.endInsertion();
+            break;
+          }
+
+          argIdx += 1;
+        }
+      }
+    }
   }
 
 

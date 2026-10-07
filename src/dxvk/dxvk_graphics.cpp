@@ -768,6 +768,15 @@ namespace dxvk {
     }
 
     info.undefinedInputs = (providedInputs & consumedInputs) ^ consumedInputs;
+
+    // Point size only matters for point primitives: point lists, or polygons
+    // drawn as points. Only done where the vertex shader feeds the rasterizer.
+    if (shaderInfo.stage == VK_SHADER_STAGE_VERTEX_BIT
+     && m_shaders.tes == nullptr && m_shaders.gs == nullptr) {
+      info.noPointSize = state.ia.primitiveTopology() != VK_PRIMITIVE_TOPOLOGY_POINT_LIST
+                      && state.rs.polygonMode() != VK_POLYGON_MODE_POINT;
+    }
+
     return shader->createShaderModule(m_vkd, m_slotMapping, info);
   }
 

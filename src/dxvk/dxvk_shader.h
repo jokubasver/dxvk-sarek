@@ -79,6 +79,7 @@ namespace dxvk {
    */
   struct DxvkShaderModuleCreateInfo {
     bool      fsDualSrcBlend  = false;
+    bool      noPointSize     = false;
     uint32_t  undefinedInputs = 0;
   };
   
@@ -215,6 +216,8 @@ namespace dxvk {
     std::vector<size_t>           m_idOffsets;
 
     static void eliminateInput(SpirvCodeBuffer& code, uint32_t location);
+
+    static void eliminatePointSize(SpirvCodeBuffer& code);
 
   };
   
