@@ -532,6 +532,31 @@ namespace dxvk {
     VkPipelineStageFlags getSrcStages() {
       return m_srcStages;
     }
+
+    /**
+     * \brief Leaves some stages out of image barriers
+     *
+     * Image barriers that also reach other stages then wait only
+     * for those. Whoever reads images in the stages left out must
+     * check \c takeDeferredStages and add a barrier of its own.
+     * \param [in] stages Stages to leave out
+     */
+    void setDeferredStages(VkPipelineStageFlags stages) {
+      m_deferMask = stages;
+    }
+
+    /**
+     * \brief Checks for image barriers that left stages out
+     *
+     * Resets the check.
+     * \returns \c true if an image barrier left stages out
+     *    since the last call
+     */
+    bool takeDeferredStages() {
+      bool deferred = m_deferred;
+      m_deferred = false;
+      return deferred;
+    }
     
     void recordCommands(
       const Rc<DxvkCommandList>&      commandList);
@@ -561,6 +586,9 @@ namespace dxvk {
     VkAccessFlags m_srcAccess = 0;
     VkAccessFlags m_dstAccess = 0;
     
+    VkPipelineStageFlags m_deferMask = 0;
+    bool                 m_deferred  = false;
+
     std::vector<VkBufferMemoryBarrier> m_bufBarriers;
     std::vector<VkImageMemoryBarrier>  m_imgBarriers;
 

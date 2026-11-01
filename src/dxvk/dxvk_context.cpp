@@ -23,6 +23,21 @@ namespace dxvk {
     if (m_device->features().extExtendedDynamicState.extendedDynamicState)
       m_features.set(DxvkContextFeature::ExtendedDynamicState);
 
+    // Arm GPUs run vertex, compute and some transfer work in one hardware
+    // slot and fragment work in another. A barrier from fragment work to
+    // the vertex stages keeps the next render pass's vertex and tiling
+    // work from overlapping the fragment work before it. Barriers after
+    // image writes leave those stages out, and draws that read images in
+    // them wait for all earlier work first (syncDeferredStages). Leaving
+    // out compute and transfer as well measured no faster on a Mali-G31.
+    if (m_device->perfHints().preferFragmentBarriers) {
+      m_deferStageMask = m_device->getShaderPipelineStages()
+        & ~(VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+
+      m_execBarriers.setDeferredStages(m_deferStageMask);
+      m_gfxBarriers.setDeferredStages(m_deferStageMask);
+    }
+
     // Init framebuffer info with default render pass in case
     // the app does not explicitly bind any render targets
     m_state.om.framebufferInfo = makeFramebufferInfo(m_state.om.renderTargets);
@@ -2028,7 +2043,7 @@ namespace dxvk {
 
       ops.barrier.srcStages = clearStages;
       ops.barrier.srcAccess = clearAccess;
-      ops.barrier.dstStages = imageView->imageInfo().stages;
+      ops.barrier.dstStages = deferVertexStages(imageView->imageInfo().stages);
       ops.barrier.dstAccess = imageView->imageInfo().access;
 
       this->renderPassBindFramebuffer(makeFramebufferInfo(attachments), ops, 1, &clearValue);
@@ -3064,7 +3079,7 @@ namespace dxvk {
 
       ops.barrier.srcStages = clearStages;
       ops.barrier.srcAccess = clearAccess;
-      ops.barrier.dstStages = imageView->imageInfo().stages;
+      ops.barrier.dstStages = deferVertexStages(imageView->imageInfo().stages);
       ops.barrier.dstAccess = imageView->imageInfo().access;
 
       // We cannot leverage render pass clears
@@ -3939,6 +3954,10 @@ namespace dxvk {
       m_flags.clr(DxvkContextFlag::GpRenderPassBound);
       m_renderAreaPartial = false;
 
+      // The pass's barrier left the vertex stages out (resetRenderPassOps)
+      if (m_deferStageMask)
+        m_deferPending = true;
+
       this->pauseTransformFeedback();
 
       m_queryManager.endQueries(m_cmd, VK_QUERY_TYPE_OCCLUSION);
@@ -4121,6 +4140,54 @@ namespace dxvk {
     renderPassOps.barrier.srcAccess = access;
     renderPassOps.barrier.dstStages = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
     renderPassOps.barrier.dstAccess = access;
+
+    // Everything but the vertex stages, see deferVertexStages.
+    // Ending the pass sets m_deferPending.
+    if (m_deferStageMask) {
+      renderPassOps.barrier.dstStages = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT
+                                      | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT
+                                      | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT
+                                      | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT
+                                      | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT
+                                      | VK_PIPELINE_STAGE_TRANSFER_BIT;
+    }
+  }
+
+
+  VkPipelineStageFlags DxvkContext::deferVertexStages(
+          VkPipelineStageFlags    stages) {
+    if ((stages & m_deferStageMask) && (stages & ~m_deferStageMask)) {
+      stages &= ~m_deferStageMask;
+      m_deferPending = true;
+    }
+
+    return stages;
+  }
+
+
+  void DxvkContext::syncDeferredStages() {
+    if (!m_deferStageMask)
+      return;
+
+    if (m_execBarriers.takeDeferredStages())
+      m_deferPending = true;
+    if (m_gfxBarriers.takeDeferredStages())
+      m_deferPending = true;
+
+    if (!m_deferPending)
+      return;
+
+    if (m_flags.test(DxvkContextFlag::GpRenderPassBound))
+      this->spillRenderPass(true);
+
+    // Recorded together with any barrier still pending for the image,
+    // such as a layout transition, so that it is ordered as well
+    m_execBarriers.accessMemory(
+      VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_ACCESS_MEMORY_WRITE_BIT,
+      m_deferStageMask, VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT);
+    m_execBarriers.recordCommands(m_cmd);
+
+    m_deferPending = false;
   }
 
 
@@ -5004,6 +5071,11 @@ namespace dxvk {
         m_renderAreaGrow = true;
       }
     }
+
+    // Barriers after image writes may have left out the stages before
+    // rasterization (deferVertexStages), where this pipeline reads images
+    if (m_deferStageMask && m_state.gp.pipeline->layout()->hasPreRasterImageReads())
+      this->syncDeferredStages();
 
     if (!m_flags.test(DxvkContextFlag::GpRenderPassBound))
       this->startRenderPass();

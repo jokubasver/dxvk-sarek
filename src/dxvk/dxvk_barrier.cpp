@@ -88,6 +88,11 @@ namespace dxvk {
           VkImageLayout             dstLayout,
           VkPipelineStageFlags      dstStages,
           VkAccessFlags             dstAccess) {
+    if ((dstStages & m_deferMask) && (dstStages & ~m_deferMask)) {
+      dstStages &= ~m_deferMask;
+      m_deferred = true;
+    }
+
     DxvkAccessFlags access = this->getAccessTypes(srcAccess);
 
     if (srcStages == VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT

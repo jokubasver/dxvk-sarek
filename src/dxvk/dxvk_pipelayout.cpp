@@ -96,8 +96,19 @@ namespace dxvk {
     if (bindingCount > MaxNumActiveBindings)
       throw DxvkError(str::format("Too many active bindings in pipeline layout (", bindingCount, ")"));
     
-    for (uint32_t i = 0; i < bindingCount; i++)
+    for (uint32_t i = 0; i < bindingCount; i++) {
       m_bindingSlots[i] = bindingInfos[i];
+
+      bool isImage = bindingInfos[i].type == VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE
+                  || bindingInfos[i].type == VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER
+                  || bindingInfos[i].type == VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+
+      if (isImage && (bindingInfos[i].stages & (VK_SHADER_STAGE_VERTEX_BIT
+                                              | VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT
+                                              | VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT
+                                              | VK_SHADER_STAGE_GEOMETRY_BIT)))
+        m_preRasterImageReads = true;
+    }
     
     std::vector<VkDescriptorSetLayoutBinding>    bindings(bindingCount);
     std::vector<VkDescriptorUpdateTemplateEntry> tEntries(bindingCount);

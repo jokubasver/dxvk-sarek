@@ -244,6 +244,16 @@ namespace dxvk {
     }
     
     /**
+     * \brief Checks whether images are read before rasterization
+     *
+     * Vertex, tessellation or geometry shaders with image
+     * bindings. Used for synchronization purposes.
+     */
+    bool hasPreRasterImageReads() const {
+      return m_preRasterImageReads;
+    }
+
+    /**
      * \brief Checks whether buffers or images are written to
      * 
      * It is assumed that storage images and buffers
@@ -272,6 +282,7 @@ namespace dxvk {
     VkDescriptorUpdateTemplateKHR   m_descriptorTemplate  = VK_NULL_HANDLE;
     
     std::vector<DxvkDescriptorSlot> m_bindingSlots;
+    bool                            m_preRasterImageReads = false;
     std::vector<uint32_t>           m_dynamicSlots;
 
     Flags<VkDescriptorType>         m_descriptorTypes;

@@ -47,6 +47,7 @@ namespace dxvk {
     VkBool32 preferRenderPassOps      : 1;
     VkBool32 preferCachedMemory       : 1;
     VkBool32 preferPartialRenderArea  : 1;
+    VkBool32 preferFragmentBarriers   : 1;
   };
 
   /**

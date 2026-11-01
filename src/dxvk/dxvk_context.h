@@ -1080,6 +1080,9 @@ namespace dxvk {
 
     DxvkRenderTargetLayouts m_rtLayouts = { };
 
+    VkPipelineStageFlags    m_deferStageMask = 0;
+    bool                    m_deferPending   = false;
+
     VkPipeline m_gpActivePipeline = VK_NULL_HANDLE;
     VkPipeline m_cpActivePipeline = VK_NULL_HANDLE;
 
@@ -1220,6 +1223,11 @@ namespace dxvk {
             uint32_t              clearValueCount,
       const VkClearValue*         clearValues,
       const VkRect2D*             renderArea = nullptr);
+
+    VkPipelineStageFlags deferVertexStages(
+            VkPipelineStageFlags    stages);
+
+    void syncDeferredStages();
 
     VkRect2D pickRenderArea(const VkRect2D* clearRect) const;
 

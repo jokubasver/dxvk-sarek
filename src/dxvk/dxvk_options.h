@@ -33,6 +33,11 @@ namespace dxvk {
     // render-pass-op side is detected but not yet acted on.
     Tristate tilerMode = Tristate::Auto;
 
+    /// Barriers after fragment work leave out the vertex
+    /// stages, so the next render pass's vertex and tiling
+    /// work can overlap it. Auto follows tilerMode.
+    Tristate fragmentBarriers = Tristate::Auto;
+
     /// Hand the driver a pipeline cache and keep it on disk beside
     /// the state cache, for drivers without a disk cache of their own
     Tristate pipelineCache = Tristate::Auto;
