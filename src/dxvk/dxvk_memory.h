@@ -341,6 +341,11 @@ namespace dxvk {
 
     uint64_t m_nextCookie = 0u;
 
+    /// Unified memory of at most 2 GiB (handhelds, small SoCs): chunks
+    /// stay small and empty ones are released early, since any memory
+    /// held here is taken from the system.
+    bool m_smallUnifiedMemory = false;
+
     DxvkMemory allocateMemory(
       const VkMemoryRequirements& req,
             VkMemoryPropertyFlags properties);

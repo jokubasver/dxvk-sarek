@@ -84,6 +84,20 @@ namespace dxvk {
         && m_device->properties().core.properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU;
     }
 
+    if (m_device->isUnifiedMemoryArchitecture()) {
+      VkDeviceSize deviceMemory = 0u;
+
+      for (uint32_t i = 0; i < m_memHeapCount; i++) {
+        if (m_memHeaps[i].properties.flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT)
+          deviceMemory += m_memHeaps[i].properties.size;
+      }
+
+      m_smallUnifiedMemory = deviceMemory <= (VkDeviceSize(2) << 30);
+
+      if (m_smallUnifiedMemory)
+        Logger::info("DxvkMemoryAllocator: Small unified memory, using small chunks");
+    }
+
     for (uint32_t i = 0; i < m_memTypeCount; i++) {
       auto& type = m_memTypes[i];
 
@@ -211,7 +225,7 @@ namespace dxvk {
       uint32_t minResourcesPerChunk = 4u;
 
       if (properties & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) {
-        if (properties & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) {
+        if ((properties & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) && !m_smallUnifiedMemory) {
           // For HVV allocations, it may be beneficial to ignore the chunk
           // size limit if the resource is large. HVV is usually slow to
           // allocate from and may be very limited in size, so we should
@@ -459,7 +473,7 @@ namespace dxvk {
     // applications frequently allocate staging buffers.
     VkDeviceSize maxUnusedMemory = pool.maxChunkSize;
 
-    if (&pool == &type.mappedPool)
+    if (&pool == &type.mappedPool && !m_smallUnifiedMemory)
       maxUnusedMemory *= 4u;
 
     // Factor the current memory allocation into the decision to free chunks
@@ -537,6 +551,11 @@ namespace dxvk {
     const DxvkMemoryType&       type,
           bool                  mappable) const {
     VkDeviceSize size = DxvkMemoryPool::MaxChunkSize;
+
+    // Every allocation comes out of system memory: chunks grown up to
+    // a quarter or more of the heap mostly hold free space.
+    if (m_smallUnifiedMemory)
+      return mappable ? DxvkMemoryPool::MinChunkSize : DxvkMemoryPool::MinChunkSize * 4u;
 
     // Prefer smaller chunks for host-visible allocations in order to
     // reduce the amount of address space required. We compensate for
