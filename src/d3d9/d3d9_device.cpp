@@ -5823,9 +5823,11 @@ namespace dxvk {
 
     m_activeRTs &= ~bit;
 
+    // With keepRenderPassAttachments, a render target with colour writes
+    // off may stay bound, so sampling it is a hazard all the same.
     if ((m_boundRTs & bit) != 0 &&
         m_state.renderTargets[index]->GetBaseTexture() != nullptr &&
-        m_state.renderStates[ColorWriteIndex(index)])
+        (m_state.renderStates[ColorWriteIndex(index)] || m_d3d9Options.keepRenderPassAttachments))
       m_activeRTs |= bit;
 
     UpdateActiveHazardsRT(bit);
@@ -6137,6 +6139,36 @@ namespace dxvk {
     // target bindings are updated. Set up the attachments.
     VkSampleCountFlagBits sampleCount = VK_SAMPLE_COUNT_FLAG_BITS_MAX_ENUM;
 
+    const bool depthUsed = m_state.renderStates[D3DRS_ZENABLE]
+                        || m_state.renderStates[D3DRS_ZWRITEENABLE]
+                        || m_state.renderStates[D3DRS_STENCILENABLE];
+
+    // With keepRenderPassAttachments, render targets with colour writes off
+    // and a depth buffer with depth and stencil off stay bound, as long as
+    // that doesn't shrink the render area below the attachments in use
+    // (a framebuffer is as large as its smallest attachment). A depth buffer
+    // that is also sampled is left out as before.
+    const bool keep = m_d3d9Options.keepRenderPassAttachments;
+    VkExtent2D usedExtent = { ~0u, ~0u };
+
+    if (keep) {
+      for (uint32_t i : bit::BitMask(m_boundRTs)) {
+        if (m_state.renderStates[ColorWriteIndex(i)]) {
+          VkExtent2D extent = m_state.renderTargets[i]->GetSurfaceExtent();
+          usedExtent = { std::min(usedExtent.width, extent.width), std::min(usedExtent.height, extent.height) };
+        }
+      }
+
+      if (m_state.depthStencil != nullptr && depthUsed) {
+        VkExtent2D extent = m_state.depthStencil->GetSurfaceExtent();
+        usedExtent = { std::min(usedExtent.width, extent.width), std::min(usedExtent.height, extent.height) };
+      }
+    }
+
+    auto coversUsed = [&usedExtent] (VkExtent2D extent) {
+      return extent.width >= usedExtent.width && extent.height >= usedExtent.height;
+    };
+
     for (uint32_t i : bit::BitMask(m_boundRTs)) {
       const DxvkImageCreateInfo& rtImageInfo = m_state.renderTargets[i]->GetCommonTexture()->GetImage()->info();
 
@@ -6145,7 +6177,8 @@ namespace dxvk {
       else if (unlikely(sampleCount != rtImageInfo.sampleCount))
         continue;
 
-      if (!m_state.renderStates[ColorWriteIndex(i)])
+      if (!m_state.renderStates[ColorWriteIndex(i)]
+       && !(keep && coversUsed(m_state.renderTargets[i]->GetSurfaceExtent())))
         continue;
 
       attachments.color[i] = {
@@ -6153,10 +6186,8 @@ namespace dxvk {
         m_state.renderTargets[i]->GetRenderTargetLayout() };
     }
 
-    if (m_state.depthStencil != nullptr &&
-      (m_state.renderStates[D3DRS_ZENABLE]
-        || m_state.renderStates[D3DRS_ZWRITEENABLE]
-        || m_state.renderStates[D3DRS_STENCILENABLE])) {
+    if (m_state.depthStencil != nullptr && (depthUsed
+     || (keep && m_activeHazardsDS == 0 && coversUsed(m_state.depthStencil->GetSurfaceExtent())))) {
       const DxvkImageCreateInfo& dsImageInfo = m_state.depthStencil->GetCommonTexture()->GetImage()->info();
       const bool depthWrite = m_state.renderStates[D3DRS_ZWRITEENABLE];
 

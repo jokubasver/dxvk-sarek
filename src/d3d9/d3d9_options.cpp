@@ -115,6 +115,12 @@ namespace dxvk {
                             || adapter->matchesDriver(VK_DRIVER_ID_ARM_PROPRIETARY));
     applyTristate(this->splitSamplerSlots, config.getOption<Tristate>("d3d9.splitSamplerSlots", Tristate::Auto));
 
+    // Arm's GPUs are tilers: a framebuffer change ends the render pass, and
+    // the next one reloads what the last one stored.
+    this->keepRenderPassAttachments = adapter != nullptr
+                                   && adapter->matchesDriver(VK_DRIVER_ID_ARM_PROPRIETARY);
+    applyTristate(this->keepRenderPassAttachments, config.getOption<Tristate>("d3d9.keepRenderPassAttachments", Tristate::Auto));
+
     std::string floatEmulation = Config::toLower(config.getOption<std::string>("d3d9.floatEmulation", "auto"));
     if (floatEmulation == "strict") {
       d3d9FloatEmulation = D3D9FloatEmulation::Strict;

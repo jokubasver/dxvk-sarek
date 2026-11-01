@@ -150,6 +150,11 @@ namespace dxvk {
     /// Required on MoltenVK, Metal cannot alias them.
     bool splitSamplerSlots;
 
+    /// Keep render targets with colour writes off and depth buffers with
+    /// depth and stencil off bound, so the render pass goes on. On tilers
+    /// each new pass stores and reloads its attachments.
+    bool keepRenderPassAttachments;
+
     /// Forces an MSAA level on the swapchain
     int32_t forceSwapchainMSAA;
 
