@@ -282,6 +282,9 @@ namespace dxvk {
     
   private:
 
+    DxvkMemoryKind memoryKind() const;
+
+
     DxvkDevice*             m_device;
     DxvkBufferCreateInfo    m_info;
     DxvkMemoryAllocator*    m_memAlloc;

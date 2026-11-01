@@ -48,9 +48,21 @@ namespace dxvk {
   DxvkBuffer::~DxvkBuffer() {
     auto vkd = m_device->vkd();
 
-    for (const auto& buffer : m_buffers)
+    for (const auto& buffer : m_buffers) {
+      trackMemoryKind(memoryKind(), -int64_t(buffer.memory.length()));
       vkd->vkDestroyBuffer(vkd->device(), buffer.buffer, nullptr);
+    }
+    trackMemoryKind(memoryKind(), -int64_t(m_buffer.memory.length()));
     vkd->vkDestroyBuffer(vkd->device(), m_buffer.buffer, nullptr);
+  }
+
+
+  DxvkMemoryKind DxvkBuffer::memoryKind() const {
+    if (!(m_memFlags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT))
+      return DxvkMemoryKind::BufferDevice;
+
+    return m_memAlloc->importsHostMemory(m_memFlags)
+      ? DxvkMemoryKind::BufferApp : DxvkMemoryKind::BufferMapped;
   }
   
   
@@ -133,6 +145,16 @@ namespace dxvk {
     if (vkd->vkBindBufferMemory(vkd->device(), handle.buffer,
         handle.memory.memory(), handle.memory.offset()) != VK_SUCCESS)
       throw DxvkError("DxvkBuffer: Failed to bind device memory");
+
+    trackMemoryKind(memoryKind(), int64_t(handle.memory.length()));
+
+    static bool memStats = env::getEnvVar("DXVK_MEM_STATS") == "1";
+
+    if (memStats && info.size >= (2u << 20)) {
+      Logger::info(str::format("Memory: buffer ", info.size >> 10, " kB (", sliceCount, " slices of ", m_physSliceLength >> 10,
+        " kB, ", m_buffers.size(), " held), usage 0x", std::hex, info.usage, ", memory 0x", m_memFlags, std::dec,
+        memoryKind() == DxvkMemoryKind::BufferApp ? ", app" : ""));
+    }
     
     if (clear && (m_memFlags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT))
       std::memset(handle.memory.mapPtr(0), 0, info.size);

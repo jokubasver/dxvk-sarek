@@ -155,6 +155,8 @@ namespace dxvk {
     // Ask driver whether we should be using a dedicated allocation
     m_image.memory = memAlloc.alloc(&memReq.memoryRequirements,
       dedicatedRequirements, dedMemoryAllocInfo, memFlags, hints);
+
+    trackMemoryKind(memoryKind(), int64_t(m_image.memory.length()));
     
     // Try to bind the allocated memory slice to the image
     if (m_vkd->vkBindImageMemory(m_vkd->device(), m_image.image,
@@ -179,8 +181,16 @@ namespace dxvk {
   DxvkImage::~DxvkImage() {
     // This is a bit of a hack to determine whether
     // the image is implementation-handled or not
-    if (m_image.memory.memory() != VK_NULL_HANDLE)
+    if (m_image.memory.memory() != VK_NULL_HANDLE) {
+      trackMemoryKind(memoryKind(), -int64_t(m_image.memory.length()));
       m_vkd->vkDestroyImage(m_vkd->device(), m_image.image, nullptr);
+    }
+  }
+
+
+  DxvkMemoryKind DxvkImage::memoryKind() const {
+    return (m_info.usage & (VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT))
+      ? DxvkMemoryKind::ImageTarget : DxvkMemoryKind::ImageSampled;
   }
 
 

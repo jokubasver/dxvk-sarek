@@ -1,10 +1,53 @@
 #include <algorithm>
+#include <atomic>
 #include <cstring>
+#include <sstream>
+
+#include "../util/util_time.h"
 
 #include "dxvk_device.h"
 #include "dxvk_memory.h"
 
 namespace dxvk {
+
+  static std::atomic<int64_t> g_kindBytes[uint32_t(DxvkMemoryKind::Count)];
+  static std::atomic<int64_t> g_kindCount[uint32_t(DxvkMemoryKind::Count)];
+
+  void trackMemoryKind(DxvkMemoryKind kind, int64_t bytes) {
+    g_kindBytes[uint32_t(kind)] += bytes;
+    g_kindCount[uint32_t(kind)] += bytes > 0 ? 1 : -1;
+  }
+
+
+  static void logMemoryKinds(const DxvkMemoryType* types, uint32_t typeCount, bool force = false) {
+    static bool enabled = env::getEnvVar("DXVK_MEM_STATS") == "1";
+    static auto last = dxvk::high_resolution_clock::now();
+
+    if (!enabled)
+      return;
+
+    auto time = dxvk::high_resolution_clock::now();
+
+    if (!force && time - last < std::chrono::seconds(5))
+      return;
+
+    last = time;
+
+    static const char* names[] = { "image sampled", "image target", "buffer app", "buffer mapped", "buffer device" };
+    std::stringstream str;
+    str << "Memory:";
+
+    for (uint32_t i = 0; i < uint32_t(DxvkMemoryKind::Count); i++)
+      str << " " << names[i] << " " << (g_kindBytes[i] >> 20) << " MB/" << g_kindCount[i];
+
+    for (uint32_t i = 0; i < typeCount; i++) {
+      str << " | type " << i << " alloc " << (types[i].stats.memoryAllocated >> 20)
+          << " used " << (types[i].stats.memoryUsed >> 20)
+          << " chunks " << types[i].devicePool.chunks.size() << "+" << types[i].mappedPool.chunks.size();
+    }
+
+    Logger::info(str.str());
+  }
 
   DxvkMemory::DxvkMemory() { }
   DxvkMemory::DxvkMemory(
@@ -227,6 +270,8 @@ namespace dxvk {
         throw DxvkError("DxvkMemoryAllocator: Memory allocation failed");
       }
     }
+
+    logMemoryKinds(m_memTypes.data(), m_memTypeCount);
 
     // Suballocate from a memory pool of a suitable memory type
     DxvkMemory result = this->allocateMemory(*req, flags);
@@ -484,6 +529,8 @@ namespace dxvk {
      && pool.nextChunkSize <= type.stats.memoryAllocated / 2u)
       pool.nextChunkSize *= 2u;
 
+    logMemoryKinds(m_memTypes.data(), m_memTypeCount, true);
+
     // Add the newly created chunk to the pool
     uint32_t chunkIndex = pool.pageAllocator.addChunk(chunk.memSize);
 
@@ -622,6 +669,9 @@ namespace dxvk {
         chunkFreed = true;
       }
     }
+
+    if (chunkFreed)
+      logMemoryKinds(m_memTypes.data(), m_memTypeCount, true);
 
     return chunkFreed;
   }

@@ -1,5 +1,12 @@
 #include "dxvk_framebuffer.h"
 
+#include <mutex>
+#include <set>
+#include <tuple>
+
+#include "../util/log/log.h"
+#include "../util/util_env.h"
+
 namespace dxvk {
 
   DxvkFramebufferInfo::DxvkFramebufferInfo() {
@@ -25,6 +32,19 @@ namespace dxvk {
     if (m_renderTargets.depth.view != nullptr) {
       m_attachments[m_attachmentCount++] = -1;
       m_sampleCount = m_renderTargets.depth.view->imageInfo().sampleCount;
+    }
+    // DXVK_MEM_STATS=1: each distinct render size once
+    static bool memStats = env::getEnvVar("DXVK_MEM_STATS") == "1";
+
+    if (memStats) {
+      static std::mutex mutex;
+      static std::set<std::tuple<uint32_t, uint32_t, uint32_t, uint32_t>> seen;
+      std::lock_guard<std::mutex> lock(mutex);
+
+      if (seen.emplace(m_renderSize.width, m_renderSize.height, m_renderSize.layers, m_attachmentCount).second) {
+        Logger::info(str::format("Framebuffer: ", m_renderSize.width, "x", m_renderSize.height, "x", m_renderSize.layers,
+          ", ", m_attachmentCount, " attachments, ", uint32_t(m_sampleCount), " samples"));
+      }
     }
   }
 

@@ -10,6 +10,20 @@ namespace dxvk {
   class DxvkMemoryAllocator;
 
   /**
+   * \brief Live memory by resource kind, for DXVK_MEM_STATS=1
+   */
+  enum class DxvkMemoryKind : uint32_t {
+    ImageSampled,
+    ImageTarget,
+    BufferApp,
+    BufferMapped,
+    BufferDevice,
+    Count
+  };
+
+  void trackMemoryKind(DxvkMemoryKind kind, int64_t bytes);
+
+  /**
    * \brief Memory stats
    *
    * Reports the amount of device memory

@@ -325,6 +325,9 @@ namespace dxvk {
 
   private:
 
+    DxvkMemoryKind memoryKind() const;
+
+
     Rc<vk::DeviceFn>      m_vkd;
     const DxvkDevice*     m_device;
     DxvkImageCreateInfo   m_info;
