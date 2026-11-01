@@ -2131,14 +2131,65 @@ namespace dxvk {
     for (const auto& clear : m_deferredClears) {
       int32_t attachmentIndex = -1;
 
-      if (useRenderPass && m_state.om.framebufferInfo.isFullSize(clear.imageView))
+      Rc<DxvkImageView> imageView = clear.imageView;
+      VkClearValue clearValue = clear.clearValue;
+
+      if (useRenderPass && m_state.om.framebufferInfo.isFullSize(clear.imageView)) {
         attachmentIndex = m_state.om.framebufferInfo.findAttachment(clear.imageView);
 
-      this->performClear(clear.imageView, attachmentIndex,
-        clear.discardAspects, clear.clearAspects, clear.clearValue);
+        // D3D9 clears through the linear view when sRGB writes are off and
+        // often draws through the sRGB view next. Clear that view instead,
+        // with the color converted, rather than in a render pass of its own.
+        if (attachmentIndex < 0 && clear.clearAspects == VK_IMAGE_ASPECT_COLOR_BIT
+         && !clear.discardAspects)
+          attachmentIndex = findSrgbPairAttachment(imageView, clearValue);
+      }
+
+      this->performClear(imageView, attachmentIndex,
+        clear.discardAspects, clear.clearAspects, clearValue);
     }
 
     m_deferredClears.clear();
+  }
+
+
+  int32_t DxvkContext::findSrgbPairAttachment(
+          Rc<DxvkImageView>&        imageView,
+          VkClearValue&             clearValue) {
+    const auto& fb = m_state.om.framebufferInfo;
+    bool srgb = imageFormatInfo(imageView->info().format)->flags.test(DxvkFormatFlag::ColorSpaceSrgb);
+
+    for (uint32_t i = 0; i < fb.numAttachments(); i++) {
+      const Rc<DxvkImageView>& view = fb.getAttachment(i).view;
+
+      if (view->image() != imageView->image()
+       || !(view->subresources() == imageView->subresources())
+       || view->info().type != imageView->info().type
+       || std::memcmp(&view->info().swizzle, &imageView->info().swizzle, sizeof(VkComponentMapping)))
+        continue;
+
+      auto formatInfo = imageFormatInfo(view->info().format);
+
+      if (formatInfo->flags.test(DxvkFormatFlag::ColorSpaceSrgb) == srgb
+       || formatInfo->elementSize != imageFormatInfo(imageView->info().format)->elementSize
+       || formatInfo->aspectMask != VK_IMAGE_ASPECT_COLOR_BIT)
+        continue;
+
+      // The attachment's view encodes what the cleared view stores as is,
+      // or the other way around. Alpha is never encoded.
+      for (uint32_t c = 0; c < 3; c++) {
+        float v = std::clamp(clearValue.color.float32[c], 0.0f, 1.0f);
+
+        clearValue.color.float32[c] = srgb
+          ? (v <= 0.0031308f ? v * 12.92f : 1.055f * std::pow(v, 1.0f / 2.4f) - 0.055f)
+          : (v <= 0.04045f ? v / 12.92f : std::pow((v + 0.055f) / 1.055f, 2.4f));
+      }
+
+      imageView = view;
+      return int32_t(i);
+    }
+
+    return -1;
   }
 
 

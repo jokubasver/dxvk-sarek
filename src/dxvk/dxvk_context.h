@@ -1212,6 +1212,10 @@ namespace dxvk {
     void flushClears(
             bool                      useRenderPass);
 
+    int32_t findSrgbPairAttachment(
+            Rc<DxvkImageView>&        imageView,
+            VkClearValue&             clearValue);
+
     void flushSharedImages();
 
     void startRenderPass(const VkRect2D* clearRect = nullptr);
