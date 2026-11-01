@@ -32,10 +32,12 @@ namespace dxvk {
     const char* cache_dir;
     const D3D9HostDisplayMode* modes;
     uint32_t mode_count;
+    int (*transcode_bc)(void* user, uint32_t format, uint32_t width, uint32_t height, const void* bc, void* astc);
   };
 
   static_assert(offsetof(D3D9Host, alloc_app) == 24 && offsetof(D3D9Host, vendor_id) == 56
-             && offsetof(D3D9Host, cache_dir) == 64 && sizeof(D3D9Host) == 88, "d3d9metal.h layout");
+             && offsetof(D3D9Host, cache_dir) == 64 && offsetof(D3D9Host, transcode_bc) == 88
+             && sizeof(D3D9Host) == 96, "d3d9metal.h layout");
 
   constexpr int D3D9HostOk       =  0;
   constexpr int D3D9HostNull     = -1;
@@ -70,6 +72,14 @@ extern "C" {
     callbacks.alloc = host->alloc_app;
     callbacks.free  = host->free_app;
     setHostMemoryCallbacks(callbacks);
+
+    // DXT textures on GPUs without BC formats
+    if (host->size >= sizeof(D3D9Host) && host->transcode_bc) {
+      HostBcTranscoder transcoder;
+      transcoder.user      = host->user;
+      transcoder.transcode = host->transcode_bc;
+      setHostBcTranscoder(transcoder);
+    }
 
     // The pipeline cache goes where the host keeps its caches,
     // unless the user picked a place

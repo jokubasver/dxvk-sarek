@@ -1,4 +1,6 @@
 #include "d3d9_format.h"
+
+#include "../util/util_host_memory.h"
 #include "d3d9_adapter.h"
 #include "d3d9_names.h"
 
@@ -642,6 +644,14 @@ namespace dxvk {
 
     if (m_a16b16g16r16Float16)
       Logger::info("D3D9: VK_FORMAT_R16G16B16A16_UNORM -> VK_FORMAT_R16G16B16A16_SFLOAT (no linear filtering)");
+
+    m_bcAsAstc = getHostBcTranscoder() != nullptr
+              && !CheckImageFormatSupport(adapter, VK_FORMAT_BC1_RGBA_UNORM_BLOCK, filterable)
+              &&  CheckImageFormatSupport(adapter, VK_FORMAT_ASTC_4x4_UNORM_BLOCK, filterable)
+              &&  CheckImageFormatSupport(adapter, VK_FORMAT_ASTC_4x4_SRGB_BLOCK, filterable);
+
+    if (m_bcAsAstc)
+      Logger::info("D3D9: DXT -> VK_FORMAT_ASTC_4x4 (no BC formats, transcoded by the host)");
   }
 
   D3D9_VK_FORMAT_MAPPING D3D9VkFormatTable::GetFormatMapping(
@@ -667,6 +677,12 @@ namespace dxvk {
       mapping.FormatColor = VK_FORMAT_R16G16B16A16_SFLOAT;
       mapping.ConversionFormatInfo = { D3D9ConversionFormat_A16B16G16R16_Float16, 1u,
         VK_FORMAT_R16G16B16A16_SFLOAT };
+    }
+
+    if (m_bcAsAstc && (Format == D3D9Format::DXT1 || Format == D3D9Format::DXT2 || Format == D3D9Format::DXT3
+                    || Format == D3D9Format::DXT4 || Format == D3D9Format::DXT5)) {
+      mapping.ConversionFormatInfo = { D3D9ConversionFormat_BC_ASTC, 1u,
+        VK_FORMAT_ASTC_4x4_UNORM_BLOCK, VK_FORMAT_ASTC_4x4_SRGB_BLOCK };
     }
 
     if (!m_d24s8Support && mapping.FormatColor == VK_FORMAT_D24_UNORM_S8_UINT)

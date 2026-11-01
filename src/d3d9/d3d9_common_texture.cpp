@@ -301,6 +301,10 @@ namespace dxvk {
 
       imageInfo.viewFormatCount = 2;
       imageInfo.viewFormats     = m_mapping.Formats;
+
+      // DXT kept as ASTC: views have the ASTC formats
+      if (m_mapping.ConversionFormatInfo.FormatType == D3D9ConversionFormat_BC_ASTC)
+        imageInfo.viewFormats = &m_mapping.ConversionFormatInfo.FormatColor;
     }
 
     // Are we an RT, need to gen mips or an offscreen plain surface?

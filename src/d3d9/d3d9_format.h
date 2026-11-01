@@ -178,6 +178,10 @@ namespace dxvk {
     // A16B16G16R16 kept as fp16 where the GPU can't filter 16 bit UNORM
     // (Mali). Converted on the CPU while uploading, not by a compute shader.
     D3D9ConversionFormat_A16B16G16R16_Float16,
+    // DXT kept as ASTC 4x4 where the GPU has no BC formats: the mapped
+    // data stays DXT (FormatColor), the image is ASTC (conversion format),
+    // transcoded by the host application on upload.
+    D3D9ConversionFormat_BC_ASTC,
     D3D9ConversionFormat_Count
   };
 
@@ -189,7 +193,8 @@ namespace dxvk {
    */
   inline bool IsShaderConversion(D3D9ConversionFormat Format) {
     return Format != D3D9ConversionFormat_None
-        && Format != D3D9ConversionFormat_A16B16G16R16_Float16;
+        && Format != D3D9ConversionFormat_A16B16G16R16_Float16
+        && Format != D3D9ConversionFormat_BC_ASTC;
   }
 
   struct D3D9_CONVERSION_FORMAT_INFO {
@@ -278,6 +283,7 @@ namespace dxvk {
     bool m_w11v11u10Support;
     bool m_d32supportFinal;
     bool m_a16b16g16r16Float16;
+    bool m_bcAsAstc;
   };
 
 }

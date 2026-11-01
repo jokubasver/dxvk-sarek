@@ -5,6 +5,7 @@
 namespace dxvk {
 
   static HostMemoryCallbacks g_hostMemory;
+  static HostBcTranscoder g_hostBcTranscoder;
 
   void setHostMemoryCallbacks(const HostMemoryCallbacks& callbacks) {
     g_hostMemory = callbacks;
@@ -13,6 +14,16 @@ namespace dxvk {
 
   const HostMemoryCallbacks* getHostMemoryCallbacks() {
     return g_hostMemory.alloc && g_hostMemory.free ? &g_hostMemory : nullptr;
+  }
+
+
+  void setHostBcTranscoder(const HostBcTranscoder& transcoder) {
+    g_hostBcTranscoder = transcoder;
+  }
+
+
+  const HostBcTranscoder* getHostBcTranscoder() {
+    return g_hostBcTranscoder.transcode ? &g_hostBcTranscoder : nullptr;
   }
 
 

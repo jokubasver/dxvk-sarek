@@ -4943,6 +4943,50 @@ namespace dxvk {
     auto convertFormat = pDestTexture->GetFormatMapping().ConversionFormatInfo;
     const bool toFloat16 = convertFormat.FormatType == D3D9ConversionFormat_A16B16G16R16_Float16;
 
+    if (unlikely(convertFormat.FormatType == D3D9ConversionFormat_BC_ASTC)) {
+      // The mapped buffer holds the game's DXT data of the whole level, the
+      // image is ASTC 4x4 (same block size): the host transcodes the level,
+      // whichever part of it was dirty.
+      if (unlikely(srcTexLevelExtent != dstTexLevelExtent)) {
+        Logger::err("D3D9: DXT as ASTC: source and destination levels differ in size");
+        return;
+      }
+
+      const DxvkFormatInfo* bcInfo = imageFormatInfo(pSrcTexture->GetFormatMapping().FormatColor);
+      const VkExtent3D blocks = srcTexLevelExtentBlockCount;
+      const VkDeviceSize bcSliceSize   = align(blocks.width * bcInfo->elementSize, 4) * blocks.height;
+      const VkDeviceSize astcSliceSize = VkDeviceSize(blocks.width) * blocks.height * formatInfo->elementSize;
+
+      D3D9BufferSlice slice = AllocTempBuffer<false>(astcSliceSize * blocks.depth);
+      const HostBcTranscoder* transcoder = getHostBcTranscoder();
+      const uint32_t d3dFormat = uint32_t(pSrcTexture->Desc()->Format);
+
+      for (uint32_t z = 0; z < blocks.depth; z++) {
+        const uint8_t* bc = reinterpret_cast<const uint8_t*>(srcSlice.mapPtr) + z * bcSliceSize;
+        uint8_t* astc = reinterpret_cast<uint8_t*>(slice.mapPtr) + z * astcSliceSize;
+
+        if (!transcoder->transcode(transcoder->user, d3dFormat, srcTexLevelExtent.width, srcTexLevelExtent.height, bc, astc)) {
+          Logger::err(str::format("D3D9: DXT as ASTC: transcoding ", srcTexLevelExtent.width, "x", srcTexLevelExtent.height, " failed"));
+          std::memset(astc, 0, astcSliceSize);
+        }
+      }
+
+      EmitCs([
+        cSrcSlice       = slice.slice,
+        cDstImage       = image,
+        cDstLayers      = dstLayers,
+        cDstLevelExtent = dstTexLevelExtent
+      ] (DxvkContext* ctx) {
+        ctx->copyBufferToImage(
+          cDstImage,  cDstLayers,
+          VkOffset3D { 0, 0, 0 }, cDstLevelExtent,
+          cSrcSlice.buffer(), cSrcSlice.offset(), 1, 1);
+      });
+
+      TrackTextureMappingBufferSequenceNumber(pSrcTexture, SrcSubresource);
+      return;
+    }
+
     if (likely(convertFormat.FormatType == D3D9ConversionFormat_None || toFloat16)) {
       VkOffset3D alignedDestOffset = {
         int32_t(alignDown(DestOffset.x, formatInfo->blockSize.width)),

@@ -243,7 +243,12 @@ namespace dxvk {
       return D3DERR_NOTAVAILABLE;
 
     // Let's actually ask Vulkan now that we got some quirks out the way!
-    return CheckDeviceVkFormat(mapping.FormatColor, Usage, RType);
+    // DXT kept as ASTC: the image has the conversion format.
+    VkFormat imageFormat = mapping.ConversionFormatInfo.FormatType == D3D9ConversionFormat_BC_ASTC
+      ? mapping.ConversionFormatInfo.FormatColor
+      : mapping.FormatColor;
+
+    return CheckDeviceVkFormat(imageFormat, Usage, RType);
   }
 
 

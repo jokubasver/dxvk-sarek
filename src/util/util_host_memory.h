@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 
 namespace dxvk {
 
@@ -46,5 +47,25 @@ namespace dxvk {
    * \param [in] size Range size in bytes
    */
   void invalidateHostMemory(const void* ptr, size_t size);
+
+  /**
+   * \brief BC to ASTC transcoder provided by the host application
+   *
+   * Lets GPUs without BC textures keep DXT textures compressed:
+   * one level of DXT data (format is the D3DFORMAT FOURCC) becomes
+   * packed ASTC 4x4 blocks. Returns nonzero on success.
+   */
+  struct HostBcTranscoder {
+    void* user = nullptr;
+    int (*transcode)(void* user, uint32_t format, uint32_t width, uint32_t height, const void* bc, void* astc) = nullptr;
+  };
+
+  void setHostBcTranscoder(const HostBcTranscoder& transcoder);
+
+  /**
+   * \brief Host BC transcoder
+   * \returns Transcoder, or \c nullptr if the host did not set one
+   */
+  const HostBcTranscoder* getHostBcTranscoder();
 
 }
