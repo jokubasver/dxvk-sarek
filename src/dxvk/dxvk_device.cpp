@@ -297,8 +297,8 @@ namespace dxvk {
       && (m_adapter->matchesDriver(DxvkGpuVendor::Amd, VK_DRIVER_ID_AMD_OPEN_SOURCE_KHR, 0, 0)
        || m_adapter->matchesDriver(DxvkGpuVendor::Amd, VK_DRIVER_ID_AMD_PROPRIETARY_KHR, 0, 0));
 
-    // Detect tiler GPUs. Currently only used to prefer cached memory
-    // for host-visible allocations; render-pass handling is a todo.
+    // Detect tiler GPUs. Used to prefer cached memory for host-visible
+    // allocations and to keep render passes within the area draws touch.
     bool tilerMode = m_adapter->matchesDriver(VK_DRIVER_ID_MESA_TURNIP)
       || m_adapter->matchesDriver(VK_DRIVER_ID_QUALCOMM_PROPRIETARY)
       || m_adapter->matchesDriver(VK_DRIVER_ID_MESA_HONEYKRISP)
@@ -312,6 +312,7 @@ namespace dxvk {
 
     applyTristate(tilerMode, m_options.tilerMode);
     hints.preferCachedMemory = tilerMode;
+    hints.preferPartialRenderArea = tilerMode;
     return hints;
   }
 

@@ -495,6 +495,10 @@ namespace dxvk {
       this->spillRenderPass(true);
     }
 
+    // A clear inside the render pass would only reach its render area
+    if (m_renderAreaPartial)
+      this->spillRenderPass(true);
+
     if (m_flags.test(DxvkContextFlag::GpRenderPassBound)) {
       uint32_t colorIndex = std::max(0, m_state.om.framebufferInfo.getColorAttachmentIndex(attachmentIndex));
 
@@ -3065,11 +3069,21 @@ namespace dxvk {
 
       // We cannot leverage render pass clears
       // because we clear only part of the view
-      this->renderPassBindFramebuffer(makeFramebufferInfo(attachments), ops, 0, nullptr);
+      VkRect2D clearArea = { { offset.x, offset.y }, { extent.width, extent.height } };
+
+      this->renderPassBindFramebuffer(makeFramebufferInfo(attachments), ops, 0, nullptr,
+        m_device->perfHints().preferPartialRenderArea ? &clearArea : nullptr);
     } else {
-      // Make sure the render pass is active so
-      // that we can actually perform the clear
-      this->startRenderPass();
+      // Make sure the render pass is active so that we can actually
+      // perform the clear, and that its render area covers the clear
+      VkRect2D clearArea = { { offset.x, offset.y }, { extent.width, extent.height } };
+
+      if (m_renderAreaPartial && !this->isInRenderArea(clearArea)) {
+        this->spillRenderPass(true);
+        m_renderAreaGrow = true;
+      }
+
+      this->startRenderPass(&clearArea);
     }
 
     // Perform the actual clear operation
@@ -3852,7 +3866,7 @@ namespace dxvk {
   }
 
 
-  void DxvkContext::startRenderPass() {
+  void DxvkContext::startRenderPass(const VkRect2D* clearRect) {
     if (!m_flags.test(DxvkContextFlag::GpRenderPassBound)) {
       this->applyRenderTargetLoadLayouts();
       this->flushClears(true);
@@ -3862,11 +3876,35 @@ namespace dxvk {
 
       m_execBarriers.recordCommands(m_cmd);
 
+      const DxvkFramebufferSize fbSize = m_state.om.framebufferInfo.size();
+
+      VkRect2D renderArea = this->pickRenderArea(clearRect);
+
+      // A pass that ended because a draw or clear fell outside its
+      // render area restarts with an area that also covers the old one
+      if (m_renderAreaGrow) {
+        int32_t x0 = std::min(renderArea.offset.x, m_renderArea.offset.x);
+        int32_t y0 = std::min(renderArea.offset.y, m_renderArea.offset.y);
+        int32_t x1 = std::max(renderArea.offset.x + int32_t(renderArea.extent.width),
+                              m_renderArea.offset.x + int32_t(m_renderArea.extent.width));
+        int32_t y1 = std::max(renderArea.offset.y + int32_t(renderArea.extent.height),
+                              m_renderArea.offset.y + int32_t(m_renderArea.extent.height));
+        x1 = std::min(x1, int32_t(fbSize.width));
+        y1 = std::min(y1, int32_t(fbSize.height));
+        renderArea = { { x0, y0 }, { uint32_t(x1 - x0), uint32_t(y1 - y0) } };
+      }
+
+      m_renderArea        = renderArea;
+      m_renderAreaGrow    = false;
+      m_renderAreaPartial = renderArea.extent.width  < fbSize.width
+                         || renderArea.extent.height < fbSize.height;
+
       this->renderPassBindFramebuffer(
         m_state.om.framebufferInfo,
         m_state.om.renderPassOps,
         m_state.om.framebufferInfo.numAttachments(),
-        m_state.om.clearValues.data());
+        m_state.om.clearValues.data(),
+        &renderArea);
 
       // Track the final layout of each render target
       this->applyRenderTargetStoreLayouts();
@@ -3899,6 +3937,7 @@ namespace dxvk {
 
     if (m_flags.test(DxvkContextFlag::GpRenderPassBound)) {
       m_flags.clr(DxvkContextFlag::GpRenderPassBound);
+      m_renderAreaPartial = false;
 
       this->pauseTransformFeedback();
 
@@ -3933,7 +3972,8 @@ namespace dxvk {
     const DxvkFramebufferInfo&  framebufferInfo,
     const DxvkRenderPassOps&    ops,
           uint32_t              clearValueCount,
-    const VkClearValue*         clearValues) {
+    const VkClearValue*         clearValues,
+    const VkRect2D*             pRenderArea) {
     const DxvkFramebufferSize fbSize = framebufferInfo.size();
 
     Rc<DxvkFramebuffer> framebuffer = this->lookupFramebuffer(framebufferInfo);
@@ -3941,6 +3981,9 @@ namespace dxvk {
     VkRect2D renderArea;
     renderArea.offset = VkOffset2D { 0, 0 };
     renderArea.extent = VkExtent2D { fbSize.width, fbSize.height };
+
+    if (pRenderArea)
+      renderArea = *pRenderArea;
 
     VkRenderPassBeginInfo info;
     info.sType                = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
@@ -3962,6 +4005,78 @@ namespace dxvk {
     }
 
     m_cmd->addStatCtr(DxvkStatCounter::CmdRenderPassCount, 1);
+  }
+
+
+  VkRect2D DxvkContext::pickRenderArea(const VkRect2D* clearRect) const {
+    const DxvkFramebufferSize fbSize = m_state.om.framebufferInfo.size();
+
+    VkRect2D fullArea = { { 0, 0 }, { fbSize.width, fbSize.height } };
+
+    if (!m_device->perfHints().preferPartialRenderArea)
+      return fullArea;
+
+    // On a tiler, every tile in the render area is loaded and stored,
+    // so a pass for a few draws into a corner of a large target costs
+    // as much as one over all of it. Clears by load op only reach the
+    // render area, so passes that use them keep the full area.
+    const DxvkRenderPassOps& ops = m_state.om.renderPassOps;
+
+    if (m_state.om.renderTargets.depth.view != nullptr
+     && (ops.depthOps.loadOpD == VK_ATTACHMENT_LOAD_OP_CLEAR
+      || ops.depthOps.loadOpS == VK_ATTACHMENT_LOAD_OP_CLEAR))
+      return fullArea;
+
+    for (uint32_t i = 0; i < MaxNumRenderTargets; i++) {
+      if (m_state.om.renderTargets.color[i].view != nullptr
+       && ops.colorOps[i].loadOp == VK_ATTACHMENT_LOAD_OP_CLEAR)
+        return fullArea;
+    }
+
+    int32_t x0 = int32_t(fbSize.width), y0 = int32_t(fbSize.height);
+    int32_t x1 = 0, y1 = 0;
+
+    auto addRect = [&] (const VkRect2D& rect) {
+      int32_t rx0 = std::max(rect.offset.x, 0);
+      int32_t ry0 = std::max(rect.offset.y, 0);
+      int32_t rx1 = std::min(rect.offset.x + int32_t(rect.extent.width),  int32_t(fbSize.width));
+      int32_t ry1 = std::min(rect.offset.y + int32_t(rect.extent.height), int32_t(fbSize.height));
+
+      if (rx0 < rx1 && ry0 < ry1) {
+        x0 = std::min(x0, rx0); y0 = std::min(y0, ry0);
+        x1 = std::max(x1, rx1); y1 = std::max(y1, ry1);
+      }
+    };
+
+    for (uint32_t i = 0; i < m_state.gp.state.rs.viewportCount(); i++)
+      addRect(m_state.vp.scissorRects[i]);
+
+    if (clearRect)
+      addRect(*clearRect);
+
+    if (x0 >= x1 || y0 >= y1)
+      return fullArea;
+
+    return { { x0, y0 }, { uint32_t(x1 - x0), uint32_t(y1 - y0) } };
+  }
+
+
+  bool DxvkContext::isInRenderArea(VkRect2D rect) const {
+    const DxvkFramebufferSize fbSize = m_state.om.framebufferInfo.size();
+
+    int32_t x0 = std::max(rect.offset.x, 0);
+    int32_t y0 = std::max(rect.offset.y, 0);
+    int32_t x1 = std::min(rect.offset.x + int32_t(rect.extent.width),  int32_t(fbSize.width));
+    int32_t y1 = std::min(rect.offset.y + int32_t(rect.extent.height), int32_t(fbSize.height));
+
+    // A rect that reaches no pixel can't draw outside of the area
+    if (x0 >= x1 || y0 >= y1)
+      return true;
+
+    return x0 >= m_renderArea.offset.x
+        && y0 >= m_renderArea.offset.y
+        && x1 <= m_renderArea.offset.x + int32_t(m_renderArea.extent.width)
+        && y1 <= m_renderArea.offset.y + int32_t(m_renderArea.extent.height);
   }
 
 
@@ -4874,6 +4989,21 @@ namespace dxvk {
 
     if (m_flags.test(DxvkContextFlag::GpDirtyFramebuffer))
       this->updateFramebuffer();
+
+    // A draw whose scissor leaves the render area ends the pass
+    if (m_renderAreaPartial && m_flags.all(
+          DxvkContextFlag::GpRenderPassBound,
+          DxvkContextFlag::GpDirtyViewport)) {
+      bool inside = true;
+
+      for (uint32_t i = 0; i < m_state.gp.state.rs.viewportCount() && inside; i++)
+        inside = this->isInRenderArea(m_state.vp.scissorRects[i]);
+
+      if (!inside) {
+        this->spillRenderPass(true);
+        m_renderAreaGrow = true;
+      }
+    }
 
     if (!m_flags.test(DxvkContextFlag::GpRenderPassBound))
       this->startRenderPass();

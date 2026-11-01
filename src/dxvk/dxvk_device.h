@@ -46,6 +46,7 @@ namespace dxvk {
     VkBool32 preferFbResolve          : 1;
     VkBool32 preferRenderPassOps      : 1;
     VkBool32 preferCachedMemory       : 1;
+    VkBool32 preferPartialRenderArea  : 1;
   };
 
   /**

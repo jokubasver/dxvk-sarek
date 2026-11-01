@@ -1062,6 +1062,11 @@ namespace dxvk {
     DxvkContextState        m_state;
     DxvkContextFeatures     m_features;
 
+    // On tilers, the area the bound render pass loads and stores
+    VkRect2D                m_renderArea = { };
+    bool                    m_renderAreaPartial = false;
+    bool                    m_renderAreaGrow = false;
+
     DxvkBarrierSet          m_sdmaAcquires;
     DxvkBarrierSet          m_sdmaBarriers;
     DxvkBarrierSet          m_initBarriers;
@@ -1206,14 +1211,19 @@ namespace dxvk {
 
     void flushSharedImages();
 
-    void startRenderPass();
+    void startRenderPass(const VkRect2D* clearRect = nullptr);
     void spillRenderPass(bool suspend);
 
     void renderPassBindFramebuffer(
       const DxvkFramebufferInfo&  framebufferInfo,
       const DxvkRenderPassOps&    ops,
             uint32_t              clearValueCount,
-      const VkClearValue*         clearValues);
+      const VkClearValue*         clearValues,
+      const VkRect2D*             renderArea = nullptr);
+
+    VkRect2D pickRenderArea(const VkRect2D* clearRect) const;
+
+    bool isInRenderArea(VkRect2D rect) const;
 
     void renderPassUnbindFramebuffer();
 
