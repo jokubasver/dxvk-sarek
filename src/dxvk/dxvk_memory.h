@@ -3,6 +3,8 @@
 #include "dxvk_adapter.h"
 #include "dxvk_allocator.h"
 
+#include "../util/util_host_memory.h"
+
 namespace dxvk {
 
   class DxvkMemoryAllocator;
@@ -322,6 +324,33 @@ namespace dxvk {
      */
     bool zeroMappedMemory() const;
 
+    /**
+     * \brief Whether mapped memory with given properties is host memory
+     *
+     * Resources bound to it must be created with the host
+     * allocation external memory handle type.
+     * \param [in] flags Memory property flags of the resource
+     * \returns \c true if the memory may be imported host memory
+     */
+    bool importsHostMemory(VkMemoryPropertyFlags flags) const {
+      return m_hostMemory && (flags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT)
+          && (getMemoryTypeMask(flags) & m_hostMemoryTypes);
+    }
+
+    /**
+     * \brief Memory properties for memory the application dereferences
+     *
+     * With host memory, mapped resources handed to the application
+     * must be placed in a memory type that host memory can be
+     * imported as, which may be cached and non-coherent: writes
+     * then go through \ref flushHostMemory.
+     * \param [in] flags Mapped memory properties otherwise used
+     * \returns Memory properties to request
+     */
+    VkMemoryPropertyFlags appMemoryFlags(VkMemoryPropertyFlags flags) const {
+      return m_hostMemory ? m_hostMemoryFlags : flags;
+    }
+
   private:
 
     const Rc<vk::DeviceFn>                 m_vkd;
@@ -340,6 +369,11 @@ namespace dxvk {
     std::array<uint32_t, 16> m_memTypesByPropertyFlags = { };
 
     uint64_t m_nextCookie = 0u;
+
+    const HostMemoryCallbacks* m_hostMemory = nullptr;
+    VkDeviceSize m_hostMemoryAlignment = 0u;
+    uint32_t m_hostMemoryTypes = 0u;
+    VkMemoryPropertyFlags m_hostMemoryFlags = 0u;
 
     /// Unified memory of at most 2 GiB (handhelds, small SoCs): chunks
     /// stay small and empty ones are released early, since any memory
@@ -384,6 +418,11 @@ namespace dxvk {
     void freeDeviceMemory(
             DxvkMemoryType&       type,
             DxvkDeviceMemory      memory);
+
+    VkDeviceSize hostMemorySize(
+            VkDeviceSize          size) const;
+
+    void initHostMemory();
 
     bool freeEmptyChunksInPool(
             DxvkMemoryType&       type,

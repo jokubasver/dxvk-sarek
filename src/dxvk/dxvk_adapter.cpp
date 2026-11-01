@@ -269,7 +269,7 @@ namespace dxvk {
           DxvkDeviceFeatures  enabledFeatures) {
     DxvkDeviceExtensions devExtensions;
 
-    std::array<DxvkExt*, 33> devExtensionList = {{
+    std::array<DxvkExt*, 34> devExtensionList = {{
       &devExtensions.amdMemoryOverallocationBehaviour,
       &devExtensions.amdShaderFragmentMask,
       &devExtensions.ext4444Formats,
@@ -277,6 +277,7 @@ namespace dxvk {
       &devExtensions.extCustomBorderColor,
       &devExtensions.extDepthClipEnable,
       &devExtensions.extExtendedDynamicState,
+      &devExtensions.extExternalMemoryHost,
       &devExtensions.extFullScreenExclusive,
       &devExtensions.extHostQueryReset,
       &devExtensions.extMemoryBudget,

@@ -84,6 +84,8 @@ namespace dxvk {
         && m_device->properties().core.properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU;
     }
 
+    initHostMemory();
+
     if (m_device->isUnifiedMemoryArchitecture()) {
       VkDeviceSize deviceMemory = 0u;
 
@@ -121,6 +123,67 @@ namespace dxvk {
     determineMemoryTypesWithPropertyFlags();
 
     updateMemoryHeapBudgets();
+  }
+
+
+  void DxvkMemoryAllocator::initHostMemory() {
+    const HostMemoryCallbacks* callbacks = getHostMemoryCallbacks();
+
+    if (!callbacks)
+      return;
+
+    if (!m_device->extensions().extExternalMemoryHost) {
+      Logger::err("DxvkMemoryAllocator: Host memory requested, but VK_EXT_external_memory_host is not supported");
+      return;
+    }
+
+    VkPhysicalDeviceExternalMemoryHostPropertiesEXT hostProps = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTERNAL_MEMORY_HOST_PROPERTIES_EXT };
+    VkPhysicalDeviceProperties2 props = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2, &hostProps };
+
+    auto adapter = m_device->adapter();
+    adapter->vki()->vkGetPhysicalDeviceProperties2(adapter->handle(), &props);
+
+    VkDeviceSize alignment = std::max<VkDeviceSize>(hostProps.minImportedHostPointerAlignment, 1u);
+
+    // Find out which memory types host memory can be imported as.
+    // Mapped allocations of other types still use driver memory.
+    void* probe = callbacks->alloc(callbacks->user, alignment, alignment);
+
+    if (!probe) {
+      Logger::err("DxvkMemoryAllocator: Host memory allocation failed");
+      return;
+    }
+
+    VkMemoryHostPointerPropertiesEXT probeProps = { VK_STRUCTURE_TYPE_MEMORY_HOST_POINTER_PROPERTIES_EXT };
+    VkResult status = m_vkd->vkGetMemoryHostPointerPropertiesEXT(m_vkd->device(),
+      VK_EXTERNAL_MEMORY_HANDLE_TYPE_HOST_ALLOCATION_BIT_EXT, probe, &probeProps);
+    callbacks->free(callbacks->user, probe, alignment);
+
+    uint32_t types = status == VK_SUCCESS ? probeProps.memoryTypeBits : 0u;
+
+    for (uint32_t i = 0; i < m_memTypeCount; i++) {
+      if (!(m_memProps.memoryTypes[i].propertyFlags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT))
+        types &= ~(1u << i);
+    }
+
+    if (!types) {
+      Logger::err(str::format("DxvkMemoryAllocator: Host memory cannot be imported as a mapped memory type (", status, ")"));
+      return;
+    }
+
+    m_hostMemory = callbacks;
+    m_hostMemoryAlignment = alignment;
+    m_hostMemoryTypes = types;
+    m_hostMemoryFlags = m_memProps.memoryTypes[bit::tzcnt(types)].propertyFlags;
+
+    Logger::info(str::format("DxvkMemoryAllocator: Host memory imported as memory types 0x", std::hex, types,
+      ", properties 0x", m_hostMemoryFlags, std::dec, ", alignment ", alignment));
+  }
+
+
+  VkDeviceSize DxvkMemoryAllocator::hostMemorySize(
+          VkDeviceSize          size) const {
+    return align(size, m_hostMemoryAlignment);
   }
 
 
@@ -335,10 +398,51 @@ namespace dxvk {
     result.memFlags = properties;
     result.priority = priorityInfo.priority;
 
-    if (m_vkd->vkAllocateMemory(m_vkd->device(), &memoryInfo, nullptr, &result.memHandle) != VK_SUCCESS)
-      return DxvkDeviceMemory();
+    // Mapped memory from the host: the application can only dereference
+    // pointers into memory it handed out, so import that memory instead
+    // of mapping driver memory. Dedicated allocation info is dropped,
+    // it is only a hint for the buffers and linear images placed here.
+    VkImportMemoryHostPointerInfoEXT importInfo = { VK_STRUCTURE_TYPE_IMPORT_MEMORY_HOST_POINTER_INFO_EXT };
 
-    if (properties & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) {
+    if (m_hostMemory && (properties & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT)
+     && (m_hostMemoryTypes & (1u << type.index))) {
+      VkDeviceSize importSize = hostMemorySize(size);
+      void* hostPointer = m_hostMemory->alloc(m_hostMemory->user, importSize, m_hostMemoryAlignment);
+
+      if (!hostPointer)
+        return DxvkDeviceMemory();
+
+      VkMemoryHostPointerPropertiesEXT hostPointerProps = { VK_STRUCTURE_TYPE_MEMORY_HOST_POINTER_PROPERTIES_EXT };
+
+      if (m_vkd->vkGetMemoryHostPointerPropertiesEXT(m_vkd->device(),
+            VK_EXTERNAL_MEMORY_HANDLE_TYPE_HOST_ALLOCATION_BIT_EXT, hostPointer, &hostPointerProps) != VK_SUCCESS
+       || !(hostPointerProps.memoryTypeBits & (1u << type.index))) {
+        Logger::err(str::format("DxvkMemoryAllocator: Host memory cannot be imported as type ", type.index,
+          " (types ", std::hex, hostPointerProps.memoryTypeBits, ")"));
+        m_hostMemory->free(m_hostMemory->user, hostPointer, importSize);
+        return DxvkDeviceMemory();
+      }
+
+      importInfo.handleType   = VK_EXTERNAL_MEMORY_HANDLE_TYPE_HOST_ALLOCATION_BIT_EXT;
+      importInfo.pHostPointer = hostPointer;
+
+      bool hasPriority = memoryInfo.pNext == &priorityInfo;
+      priorityInfo.pNext = nullptr;
+      importInfo.pNext = hasPriority ? &priorityInfo : nullptr;
+
+      memoryInfo.allocationSize = importSize;
+      memoryInfo.pNext = &importInfo;
+
+      if (m_vkd->vkAllocateMemory(m_vkd->device(), &memoryInfo, nullptr, &result.memHandle) != VK_SUCCESS) {
+        Logger::err(str::format("DxvkMemoryAllocator: Importing ", importSize, " bytes of host memory failed"));
+        m_hostMemory->free(m_hostMemory->user, hostPointer, importSize);
+        return DxvkDeviceMemory();
+      }
+
+      result.memPointer = hostPointer;
+    } else if (m_vkd->vkAllocateMemory(m_vkd->device(), &memoryInfo, nullptr, &result.memHandle) != VK_SUCCESS) {
+      return DxvkDeviceMemory();
+    } else if (properties & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) {
       VkResult status = m_vkd->vkMapMemory(m_vkd->device(), result.memHandle, 0, VK_WHOLE_SIZE, 0, &result.memPointer);
 
       if (status != VK_SUCCESS) {
@@ -439,7 +543,7 @@ namespace dxvk {
     if (memory.m_address & DedicatedChunkAddress) {
       DxvkDeviceMemory devMem;
       devMem.memHandle  = memory.m_memory;
-      devMem.memPointer = nullptr;
+      devMem.memPointer = memory.m_mapPtr;
       devMem.memSize    = memory.m_length;
 
       this->freeDeviceMemory(type, devMem);
@@ -458,6 +562,9 @@ namespace dxvk {
           DxvkMemoryType&       type,
           DxvkDeviceMemory      memory) {
     m_vkd->vkFreeMemory(m_vkd->device(), memory.memHandle, nullptr);
+
+    if (m_hostMemory && memory.memPointer && (m_hostMemoryTypes & (1u << type.index)))
+      m_hostMemory->free(m_hostMemory->user, memory.memPointer, hostMemorySize(memory.memSize));
 
     type.stats.memoryAllocated -= memory.memSize;
     m_device->adapter()->notifyHeapMemoryFree(type.heap->index, memory.memSize);
@@ -560,8 +667,10 @@ namespace dxvk {
     // Prefer smaller chunks for host-visible allocations in order to
     // reduce the amount of address space required. We compensate for
     // the smaller size by allowing more unused memory on these heaps.
+    // Host memory lives in the application's address space, which may
+    // be as small as that of a 32-bit process.
     if (mappable)
-      size /= env::is32BitHostPlatform() ? 16u : 4u;
+      size /= env::is32BitHostPlatform() || (m_hostMemoryTypes & (1u << type.index)) ? 16u : 4u;
 
     // Ensure that we can at least do a handful of allocations to fill
     // the heap. Important on systems with a small BAR or a small heap.

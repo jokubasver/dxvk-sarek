@@ -66,6 +66,14 @@ namespace dxvk {
     info.sharingMode           = VK_SHARING_MODE_EXCLUSIVE;
     info.queueFamilyIndexCount = 0;
     info.pQueueFamilyIndices   = nullptr;
+
+    // Mapped memory may be imported host memory, which
+    // only takes buffers created for that handle type
+    VkExternalMemoryBufferCreateInfo externalInfo = { VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_BUFFER_CREATE_INFO };
+    externalInfo.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_HOST_ALLOCATION_BIT_EXT;
+
+    if (m_memAlloc->importsHostMemory(m_memFlags))
+      info.pNext = &externalInfo;
     
     DxvkBufferHandle handle;
 

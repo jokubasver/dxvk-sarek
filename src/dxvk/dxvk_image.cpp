@@ -54,6 +54,13 @@ namespace dxvk {
       externalInfo.handleTypes = createInfo.sharing.type;
 
       formatList.pNext = &externalInfo;
+    } else if (memAlloc.importsHostMemory(memFlags)) {
+      // Mapped memory may be imported host memory
+      externalInfo.sType = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO;
+      externalInfo.pNext = nullptr;
+      externalInfo.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_HOST_ALLOCATION_BIT_EXT;
+
+      formatList.pNext = &externalInfo;
     }
     
     if (m_vkd->vkCreateImage(m_vkd->device(),

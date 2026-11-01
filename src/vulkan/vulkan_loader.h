@@ -358,6 +358,10 @@ namespace dxvk::vk {
     VULKAN_FN(vkResetQueryPoolEXT);
     #endif
 
+    #ifdef VK_EXT_external_memory_host
+    VULKAN_FN(vkGetMemoryHostPointerPropertiesEXT);
+    #endif
+
     #ifdef VK_EXT_transform_feedback
     VULKAN_FN(vkCmdBindTransformFeedbackBuffersEXT);
     VULKAN_FN(vkCmdBeginTransformFeedbackEXT);

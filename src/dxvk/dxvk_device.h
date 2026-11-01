@@ -289,6 +289,17 @@ namespace dxvk {
       const DxvkFramebufferInfo&  info);
 
     /**
+     * \brief Memory properties for memory the application dereferences
+     *
+     * See \ref DxvkMemoryAllocator::appMemoryFlags.
+     * \param [in] flags Mapped memory properties otherwise used
+     * \returns Memory properties to request
+     */
+    VkMemoryPropertyFlags appMemoryFlags(VkMemoryPropertyFlags flags) {
+      return m_objects.memoryManager().appMemoryFlags(flags);
+    }
+
+    /**
      * \brief Creates a buffer object
      *
      * \param [in] createInfo Buffer create info
