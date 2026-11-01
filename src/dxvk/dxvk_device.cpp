@@ -49,10 +49,23 @@ namespace dxvk {
 
 
   DxvkFramebufferSize DxvkDevice::getDefaultFramebufferSize() const {
-    return DxvkFramebufferSize {
+    DxvkFramebufferSize size = {
       m_properties.core.properties.limits.maxFramebufferWidth,
       m_properties.core.properties.limits.maxFramebufferHeight,
       m_properties.core.properties.limits.maxFramebufferLayers };
+
+    // The size of a framebuffer without attachments. Arm's driver sizes
+    // the tiler heap of a render pass by its framebuffer: at 16384x16384
+    // it reserves ~368 MB of GPU address space per pass from a 1 GB zone,
+    // which runs out after a couple of frames in flight and stalls the
+    // GPU until a heap is freed.
+    if (m_adapter->matchesDriver(VK_DRIVER_ID_ARM_PROPRIETARY)) {
+      size.width  = std::min(size.width,  4096u);
+      size.height = std::min(size.height, 4096u);
+      size.layers = 1u;
+    }
+
+    return size;
   }
 
 
