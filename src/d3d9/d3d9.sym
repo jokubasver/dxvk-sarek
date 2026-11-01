@@ -20,6 +20,8 @@
     Direct3D9ForceHybridEnumeration;
     Direct3DCreate9On12;
     Direct3DCreate9On12Ex;
+    d3d9metal_init;
+    d3d9metal_Direct3DCreate9;
 
   local:
     *;
