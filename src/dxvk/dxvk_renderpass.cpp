@@ -6,7 +6,8 @@
 namespace dxvk {
   
   bool DxvkRenderPassFormat::eq(const DxvkRenderPassFormat& fmt) const {
-    bool eq = sampleCount == fmt.sampleCount;
+    bool eq = sampleCount == fmt.sampleCount
+           && renderSampleCount == fmt.renderSampleCount;
     
     for (uint32_t i = 0; i < MaxNumRenderTargets && eq; i++) {
       eq &= color[i].format == fmt.color[i].format
@@ -23,6 +24,7 @@ namespace dxvk {
   size_t DxvkRenderPassFormat::hash() const {
     DxvkHashState state;
     state.add(uint32_t(sampleCount));
+    state.add(uint32_t(renderSampleCount));
 
     for (uint32_t i = 0; i < MaxNumRenderTargets; i++) {
       state.add(uint32_t(color[i].format));
@@ -221,6 +223,11 @@ namespace dxvk {
         ops.barrier.dstAccess, 0 };
     }
     
+    if (m_format.renderSampleCount > VK_SAMPLE_COUNT_1_BIT) {
+      return this->createRenderPass2(attachments.size(), attachments.data(),
+        subpass, subpassDepCount, subpassDeps.data());
+    }
+
     VkRenderPassCreateInfo info;
     info.sType                        = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
     info.pNext                        = nullptr;
@@ -238,7 +245,89 @@ namespace dxvk {
       Logger::err("DxvkRenderPass: Failed to create render pass object");
       return VK_NULL_HANDLE;
     }
-    
+
+    return renderPass;
+  }
+
+
+  VkRenderPass DxvkRenderPass::createRenderPass2(
+          uint32_t                attachmentCount,
+    const VkAttachmentDescription* pAttachments,
+    const VkSubpassDescription&   subpass,
+          uint32_t                dependencyCount,
+    const VkSubpassDependency*    pDependencies) {
+    // Multisampled render to single-sampled: the attachments are single-sampled
+    // and the subpass rasterizes at renderSampleCount, with the samples only in
+    // tile memory. Loads fill every sample from the image and stores resolve
+    // them, colour by averaging and depth-stencil with sample zero. This is
+    // what tilers do for multisampled render to texture in GLES.
+    std::array<VkAttachmentDescription2, MaxNumRenderTargets + 1> attachments2;
+
+    for (uint32_t i = 0; i < attachmentCount; i++) {
+      const VkAttachmentDescription& a = pAttachments[i];
+      attachments2[i] = { VK_STRUCTURE_TYPE_ATTACHMENT_DESCRIPTION_2, nullptr,
+        a.flags, a.format, a.samples, a.loadOp, a.storeOp,
+        a.stencilLoadOp, a.stencilStoreOp, a.initialLayout, a.finalLayout };
+    }
+
+    std::array<VkAttachmentReference2, MaxNumRenderTargets> colorRefs2;
+
+    for (uint32_t i = 0; i < subpass.colorAttachmentCount; i++) {
+      const VkAttachmentReference& r = subpass.pColorAttachments[i];
+      colorRefs2[i] = { VK_STRUCTURE_TYPE_ATTACHMENT_REFERENCE_2, nullptr,
+        r.attachment, r.layout,
+        VkImageAspectFlags(r.attachment != VK_ATTACHMENT_UNUSED ? VK_IMAGE_ASPECT_COLOR_BIT : 0) };
+    }
+
+    VkAttachmentReference2 depthRef2 = { VK_STRUCTURE_TYPE_ATTACHMENT_REFERENCE_2 };
+
+    VkSubpassDescriptionDepthStencilResolve dsResolve = { VK_STRUCTURE_TYPE_SUBPASS_DESCRIPTION_DEPTH_STENCIL_RESOLVE };
+    dsResolve.depthResolveMode   = VK_RESOLVE_MODE_SAMPLE_ZERO_BIT;
+    dsResolve.stencilResolveMode = VK_RESOLVE_MODE_SAMPLE_ZERO_BIT;
+
+    VkMultisampledRenderToSingleSampledInfoEXT msrtss = { VK_STRUCTURE_TYPE_MULTISAMPLED_RENDER_TO_SINGLE_SAMPLED_INFO_EXT };
+    msrtss.multisampledRenderToSingleSampledEnable = VK_TRUE;
+    msrtss.rasterizationSamples = m_format.renderSampleCount;
+
+    if (subpass.pDepthStencilAttachment) {
+      const VkAttachmentReference& r = *subpass.pDepthStencilAttachment;
+      depthRef2.attachment = r.attachment;
+      depthRef2.layout     = r.layout;
+      depthRef2.aspectMask = imageFormatInfo(pAttachments[r.attachment].format)->aspectMask;
+      msrtss.pNext = &dsResolve;
+    }
+
+    VkSubpassDescription2 subpass2 = { VK_STRUCTURE_TYPE_SUBPASS_DESCRIPTION_2, &msrtss };
+    subpass2.flags                   = subpass.flags;
+    subpass2.pipelineBindPoint       = subpass.pipelineBindPoint;
+    subpass2.colorAttachmentCount    = subpass.colorAttachmentCount;
+    subpass2.pColorAttachments       = colorRefs2.data();
+    subpass2.pDepthStencilAttachment = subpass.pDepthStencilAttachment ? &depthRef2 : nullptr;
+
+    std::array<VkSubpassDependency2, 3> deps2;
+
+    for (uint32_t i = 0; i < dependencyCount; i++) {
+      const VkSubpassDependency& d = pDependencies[i];
+      deps2[i] = { VK_STRUCTURE_TYPE_SUBPASS_DEPENDENCY_2, nullptr,
+        d.srcSubpass, d.dstSubpass, d.srcStageMask, d.dstStageMask,
+        d.srcAccessMask, d.dstAccessMask, d.dependencyFlags, 0 };
+    }
+
+    VkRenderPassCreateInfo2 info = { VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO_2 };
+    info.attachmentCount = attachmentCount;
+    info.pAttachments    = attachments2.data();
+    info.subpassCount    = 1;
+    info.pSubpasses      = &subpass2;
+    info.dependencyCount = dependencyCount;
+    info.pDependencies   = dependencyCount ? deps2.data() : nullptr;
+
+    VkRenderPass renderPass = VK_NULL_HANDLE;
+
+    if (m_vkd->vkCreateRenderPass2KHR(m_vkd->device(), &info, nullptr, &renderPass) != VK_SUCCESS) {
+      Logger::err("DxvkRenderPass: Failed to create multisampled render to single-sampled render pass");
+      return VK_NULL_HANDLE;
+    }
+
     return renderPass;
   }
   

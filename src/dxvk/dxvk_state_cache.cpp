@@ -565,7 +565,14 @@ namespace dxvk {
        || !data.read(imageLayout, version))
         return false;
 
-      entry.format.sampleCount = VkSampleCountFlagBits(sampleCount);
+      // The top bit marks a multisampled render to single-sampled
+      // pass, the rest is its rasterization sample count
+      if (sampleCount & 0x80) {
+        entry.format.sampleCount = VK_SAMPLE_COUNT_1_BIT;
+        entry.format.renderSampleCount = VkSampleCountFlagBits(sampleCount & 0x7f);
+      } else {
+        entry.format.sampleCount = VkSampleCountFlagBits(sampleCount);
+      }
       entry.format.depth.format = VkFormat(imageFormat);
       entry.format.depth.layout = unpackImageLayout(imageLayout);
 
@@ -664,7 +671,9 @@ namespace dxvk {
       data.write(entry.cpState.bsBindingMask);
     } else {
       // Pack render pass format
-      data.write(uint8_t(entry.format.sampleCount));
+      data.write(entry.format.renderSampleCount > VK_SAMPLE_COUNT_1_BIT
+        ? uint8_t(0x80 | entry.format.renderSampleCount)
+        : uint8_t(entry.format.sampleCount));
       data.write(uint8_t(entry.format.depth.format));
       data.write(packImageLayout(entry.format.depth.layout));
 

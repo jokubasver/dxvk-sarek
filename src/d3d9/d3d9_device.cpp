@@ -4359,6 +4359,11 @@ namespace dxvk {
 
     enabled.extNonSeamlessCubeMap.nonSeamlessCubeMap = supported.extNonSeamlessCubeMap.nonSeamlessCubeMap;
 
+    // Multisampled render targets as single-sampled images on tilers, see
+    // D3D9Options::msaaRenderToSingleSampled
+    enabled.extMultisampledRenderToSingleSampled.multisampledRenderToSingleSampled =
+      supported.extMultisampledRenderToSingleSampled.multisampledRenderToSingleSampled;
+
     return enabled;
   }
 
@@ -6169,12 +6174,18 @@ namespace dxvk {
       return extent.width >= usedExtent.width && extent.height >= usedExtent.height;
     };
 
+    // Attachments must agree on the sample count they render at, which for a
+    // multisampled render to single-sampled image is not the image's own
+    auto renderSamples = [] (const DxvkImageCreateInfo& info) {
+      return info.renderSampleCount > VK_SAMPLE_COUNT_1_BIT ? info.renderSampleCount : info.sampleCount;
+    };
+
     for (uint32_t i : bit::BitMask(m_boundRTs)) {
       const DxvkImageCreateInfo& rtImageInfo = m_state.renderTargets[i]->GetCommonTexture()->GetImage()->info();
 
       if (likely(sampleCount == VK_SAMPLE_COUNT_FLAG_BITS_MAX_ENUM))
-        sampleCount = rtImageInfo.sampleCount;
-      else if (unlikely(sampleCount != rtImageInfo.sampleCount))
+        sampleCount = renderSamples(rtImageInfo);
+      else if (unlikely(sampleCount != renderSamples(rtImageInfo)))
         continue;
 
       if (!m_state.renderStates[ColorWriteIndex(i)]
@@ -6191,7 +6202,7 @@ namespace dxvk {
       const DxvkImageCreateInfo& dsImageInfo = m_state.depthStencil->GetCommonTexture()->GetImage()->info();
       const bool depthWrite = m_state.renderStates[D3DRS_ZWRITEENABLE];
 
-      if (likely(sampleCount == VK_SAMPLE_COUNT_FLAG_BITS_MAX_ENUM || sampleCount == dsImageInfo.sampleCount)) {
+      if (likely(sampleCount == VK_SAMPLE_COUNT_FLAG_BITS_MAX_ENUM || sampleCount == renderSamples(dsImageInfo))) {
         attachments.depth = {
           m_state.depthStencil->GetDepthStencilView(),
           m_state.depthStencil->GetDepthStencilLayout(depthWrite, m_activeHazardsDS != 0) };
@@ -7637,8 +7648,9 @@ namespace dxvk {
       srcSubresource.mipLevel,
       srcSubresource.arrayLayer, 1 };
 
-    VkSampleCountFlagBits srcSampleCount;
-    DecodeMultiSampleType(m_dxvkDevice, srcDesc->MultiSample, srcDesc->MultisampleQuality, &srcSampleCount);
+    // The image's own sample count: a multisampled render to single-sampled
+    // depth buffer is copied, not resolved
+    VkSampleCountFlagBits srcSampleCount = srcTextureInfo->GetImage()->info().sampleCount;
 
     if (srcSampleCount == VK_SAMPLE_COUNT_1_BIT) {
       EmitCs([

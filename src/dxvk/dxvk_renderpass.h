@@ -34,6 +34,9 @@ namespace dxvk {
    */
   struct DxvkRenderPassFormat {
     VkSampleCountFlagBits sampleCount = VK_SAMPLE_COUNT_1_BIT;
+    /// Rasterization samples of a multisampled render to single-sampled
+    /// pass over single-sampled attachments, 1 for a regular pass
+    VkSampleCountFlagBits renderSampleCount = VK_SAMPLE_COUNT_1_BIT;
     DxvkAttachmentFormat  depth;
     DxvkAttachmentFormat  color[MaxNumRenderTargets];
     
@@ -188,6 +191,13 @@ namespace dxvk {
     
     VkRenderPass createRenderPass(
       const DxvkRenderPassOps& ops);
+
+    VkRenderPass createRenderPass2(
+            uint32_t                attachmentCount,
+      const VkAttachmentDescription* pAttachments,
+      const VkSubpassDescription&   subpass,
+            uint32_t                dependencyCount,
+      const VkSubpassDependency*    pDependencies);
     
     static bool compareOps(
       const DxvkRenderPassOps& a,

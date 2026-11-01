@@ -288,6 +288,7 @@ namespace dxvk {
 
     DecodeMultiSampleType(m_device->GetDXVKDevice(), m_desc.MultiSample, m_desc.MultisampleQuality, &imageInfo.sampleCount);
 
+
     // The image must be marked as mutable if it can be reinterpreted
     // by a view with a different format. Depth-stencil formats cannot
     // be reinterpreted in Vulkan, so we'll ignore those.
@@ -321,6 +322,17 @@ namespace dxvk {
                        |  VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
       imageInfo.access |= VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT
                        |  VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+    }
+
+    // A multisampled render target or depth buffer becomes a single-sampled
+    // image that render passes rasterize at its sample count, so the samples
+    // only live in tile memory. Resolves of it then are plain copies.
+    if (imageInfo.sampleCount > VK_SAMPLE_COUNT_1_BIT
+     && m_device->GetOptions()->msaaRenderToSingleSampled
+     && (imageInfo.usage & (VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT))) {
+      imageInfo.renderSampleCount = imageInfo.sampleCount;
+      imageInfo.sampleCount       = VK_SAMPLE_COUNT_1_BIT;
+      imageInfo.flags            |= VK_IMAGE_CREATE_MULTISAMPLED_RENDER_TO_SINGLE_SAMPLED_BIT_EXT;
     }
 
     if (ResourceType == D3DRTYPE_CUBETEXTURE)

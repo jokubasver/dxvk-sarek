@@ -121,6 +121,16 @@ namespace dxvk {
                                    && adapter->matchesDriver(VK_DRIVER_ID_ARM_PROPRIETARY);
     applyTristate(this->keepRenderPassAttachments, config.getOption<Tristate>("d3d9.keepRenderPassAttachments", Tristate::Auto));
 
+    // Real multisampled images store and reload every sample at each render
+    // pass, which on a tiler costs as much as the rest of the frame.
+    this->msaaRenderToSingleSampled = device != nullptr
+      && device->features().extMultisampledRenderToSingleSampled.multisampledRenderToSingleSampled
+      && adapter->matchesDriver(VK_DRIVER_ID_ARM_PROPRIETARY);
+    applyTristate(this->msaaRenderToSingleSampled, config.getOption<Tristate>("d3d9.msaaRenderToSingleSampled", Tristate::Auto));
+
+    if (device != nullptr && !device->features().extMultisampledRenderToSingleSampled.multisampledRenderToSingleSampled)
+      this->msaaRenderToSingleSampled = false;
+
     std::string floatEmulation = Config::toLower(config.getOption<std::string>("d3d9.floatEmulation", "auto"));
     if (floatEmulation == "strict") {
       d3d9FloatEmulation = D3D9FloatEmulation::Strict;

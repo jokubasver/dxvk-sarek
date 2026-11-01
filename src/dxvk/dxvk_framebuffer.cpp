@@ -9,6 +9,13 @@
 
 namespace dxvk {
 
+  // Pipelines rasterize at the render sample count of multisampled
+  // render to single-sampled attachments, at the image's otherwise
+  static VkSampleCountFlagBits renderSampleCount(const DxvkImageCreateInfo& info) {
+    return info.renderSampleCount > VK_SAMPLE_COUNT_1_BIT
+      ? info.renderSampleCount : info.sampleCount;
+  }
+
   DxvkFramebufferInfo::DxvkFramebufferInfo() {
 
   }
@@ -25,13 +32,13 @@ namespace dxvk {
     for (uint32_t i = 0; i < MaxNumRenderTargets; i++) {
       if (m_renderTargets.color[i].view != nullptr) {
         m_attachments[m_attachmentCount++] = i;
-        m_sampleCount = m_renderTargets.color[i].view->imageInfo().sampleCount;
+        m_sampleCount = renderSampleCount(m_renderTargets.color[i].view->imageInfo());
       }
     }
 
     if (m_renderTargets.depth.view != nullptr) {
       m_attachments[m_attachmentCount++] = -1;
-      m_sampleCount = m_renderTargets.depth.view->imageInfo().sampleCount;
+      m_sampleCount = renderSampleCount(m_renderTargets.depth.view->imageInfo());
     }
     // DXVK_MEM_STATS=1: each distinct render size once
     static bool memStats = env::getEnvVar("DXVK_MEM_STATS") == "1";
@@ -119,6 +126,7 @@ namespace dxvk {
     for (uint32_t i = 0; i < MaxNumRenderTargets; i++) {
       if (renderTargets.color[i].view != nullptr) {
         format.sampleCount     = renderTargets.color[i].view->imageInfo().sampleCount;
+        format.renderSampleCount = renderTargets.color[i].view->imageInfo().renderSampleCount;
         format.color[i].format = renderTargets.color[i].view->info().format;
         format.color[i].layout = renderTargets.color[i].layout;
       }
@@ -126,6 +134,7 @@ namespace dxvk {
 
     if (renderTargets.depth.view != nullptr) {
       format.sampleCount  = renderTargets.depth.view->imageInfo().sampleCount;
+      format.renderSampleCount = renderTargets.depth.view->imageInfo().renderSampleCount;
       format.depth.format = renderTargets.depth.view->info().format;
       format.depth.layout = renderTargets.depth.layout;
     }

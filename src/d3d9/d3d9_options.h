@@ -155,6 +155,12 @@ namespace dxvk {
     /// each new pass stores and reloads its attachments.
     bool keepRenderPassAttachments;
 
+    /// Create multisampled render targets and depth buffers as
+    /// single-sampled images that render passes rasterize at their
+    /// sample count (VK_EXT_multisampled_render_to_single_sampled):
+    /// the samples then stay in tile memory, as with GLES on tilers.
+    bool msaaRenderToSingleSampled;
+
     /// Forces an MSAA level on the swapchain
     int32_t forceSwapchainMSAA;
 

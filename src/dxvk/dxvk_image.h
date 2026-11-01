@@ -29,6 +29,12 @@ namespace dxvk {
     /// Sample count for MSAA
     VkSampleCountFlagBits sampleCount;
 
+    /// Sample count render passes rasterize at when the image is
+    /// single-sampled and created with the multisampled render to
+    /// single-sampled flag: the samples then live in tile memory
+    /// only, and storing the attachment resolves them.
+    VkSampleCountFlagBits renderSampleCount = VK_SAMPLE_COUNT_1_BIT;
+
     /// Image size, in texels
     VkExtent3D extent;
 
