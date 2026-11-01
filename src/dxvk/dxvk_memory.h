@@ -351,6 +351,14 @@ namespace dxvk {
       return m_hostMemory ? m_hostMemoryFlags : flags;
     }
 
+    /**
+     * \brief Whether device memory is unified and at most 2 GiB
+     * \returns \c true on small unified memory
+     */
+    bool smallUnifiedMemory() const {
+      return m_smallUnifiedMemory;
+    }
+
   private:
 
     const Rc<vk::DeviceFn>                 m_vkd;

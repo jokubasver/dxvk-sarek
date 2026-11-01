@@ -300,6 +300,16 @@ namespace dxvk {
     }
 
     /**
+     * \brief Whether device memory is a small share of system memory
+     *
+     * Unified memory of at most 2 GiB: copies kept only to speed up
+     * uploads on dedicated GPUs cost RAM here and gain nothing.
+     */
+    bool hasSmallUnifiedMemory() {
+      return m_objects.memoryManager().smallUnifiedMemory();
+    }
+
+    /**
      * \brief Creates a buffer object
      *
      * \param [in] createInfo Buffer create info

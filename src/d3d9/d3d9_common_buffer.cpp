@@ -9,7 +9,7 @@ namespace dxvk {
           D3D9DeviceEx*      pDevice,
     const D3D9_BUFFER_DESC*  pDesc)
     : m_parent ( pDevice ), m_desc ( *pDesc ),
-      m_mapMode(DetermineMapMode(pDevice->GetOptions())) {
+      m_mapMode(DetermineMapMode(pDevice)) {
     m_buffer = CreateBuffer();
     if (m_mapMode == D3D9_COMMON_BUFFER_MAP_MODE_BUFFER)
       m_stagingBuffer = CreateStagingBuffer();
@@ -18,6 +18,24 @@ namespace dxvk {
 
     if (m_desc.Pool != D3DPOOL_DEFAULT)
       m_dirtyRange = D3D9Range(0, m_desc.Size);
+  }
+
+
+  D3D9_COMMON_BUFFER_MAP_MODE D3D9CommonBuffer::DetermineMapMode(D3D9DeviceEx* pDevice) const {
+    if (!pDevice->GetOptions()->allowDirectBufferMapping)
+      return D3D9_COMMON_BUFFER_MAP_MODE_BUFFER;
+
+    if (m_desc.Pool == D3DPOOL_DEFAULT && (m_desc.Usage & (D3DUSAGE_DYNAMIC | D3DUSAGE_WRITEONLY)))
+      return D3D9_COMMON_BUFFER_MAP_MODE_DIRECT;
+
+    // On small unified memory, a staging copy next to the buffer only
+    // doubles its RAM: static and managed buffers are mapped directly too.
+    // Locking one the GPU still reads then waits, as for DEFAULT buffers.
+    if ((m_desc.Pool == D3DPOOL_DEFAULT || IsPoolManaged(m_desc.Pool))
+     && pDevice->GetDXVKDevice()->hasSmallUnifiedMemory())
+      return D3D9_COMMON_BUFFER_MAP_MODE_DIRECT;
+
+    return D3D9_COMMON_BUFFER_MAP_MODE_BUFFER;
   }
 
 
