@@ -161,6 +161,12 @@ namespace dxvk {
     inline D3D9Range& DirtyRange()  { return m_dirtyRange; }
 
     /**
+    * \brief Range of the mapped slice written by the application since
+    * the first of the current locks, to flush from the CPU caches
+    */
+    inline D3D9Range& HostWriteRange() { return m_hostWriteRange; }
+
+    /**
      * \brief The range of the buffer that might currently be read by the GPU
      */
     inline D3D9Range& GPUReadingRange() { return m_gpuReadingRange; }
@@ -257,6 +263,7 @@ namespace dxvk {
 
     D3D9Range                   m_dirtyRange;
     D3D9Range                   m_gpuReadingRange;
+    D3D9Range                   m_hostWriteRange;
 
     uint32_t                    m_lockCount = 0;
 

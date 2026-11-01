@@ -215,6 +215,8 @@ namespace dxvk {
                                   | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
                                   | VK_MEMORY_PROPERTY_HOST_CACHED_BIT;
 
+    memType = m_device->GetDXVKDevice()->appMemoryFlags(memType);
+
     m_buffers[Subresource] = m_device->GetDXVKDevice()->createBuffer(info, memType);
     m_mappedSlices[Subresource] = m_buffers[Subresource]->getSliceHandle();
 

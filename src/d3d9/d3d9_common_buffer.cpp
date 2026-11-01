@@ -122,6 +122,10 @@ namespace dxvk {
                   |  VK_MEMORY_PROPERTY_HOST_CACHED_BIT;
     }
 
+    // The application dereferences mapped buffers
+    if (memoryFlags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT)
+      memoryFlags = m_parent->GetDXVKDevice()->appMemoryFlags(memoryFlags);
+
     return m_parent->GetDXVKDevice()->createBuffer(info, memoryFlags);
   }
 
@@ -144,6 +148,8 @@ namespace dxvk {
       VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT
     | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
     | VK_MEMORY_PROPERTY_HOST_CACHED_BIT;
+
+    memoryFlags = m_parent->GetDXVKDevice()->appMemoryFlags(memoryFlags);
 
     return m_parent->GetDXVKDevice()->createBuffer(info, memoryFlags);
   }

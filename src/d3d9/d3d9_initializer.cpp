@@ -1,5 +1,7 @@
 #include <cstring>
 
+#include "../util/util_host_memory.h"
+
 #include "d3d9_initializer.h"
 
 namespace dxvk {
@@ -71,6 +73,8 @@ namespace dxvk {
     std::memset(
       Slice.mapPtr(0), 0,
       Slice.length());
+
+    flushHostMemory(Slice.mapPtr(0), Slice.length());
   }
 
 
@@ -141,6 +145,8 @@ namespace dxvk {
             mapSlice.mapPtr, 0,
             mapSlice.length);
         }
+
+        flushHostMemory(mapSlice.mapPtr, mapSlice.length);
       }
     }
   }

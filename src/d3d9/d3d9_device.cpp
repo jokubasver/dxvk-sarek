@@ -4,6 +4,8 @@
 #include "d3d9_interface.h"
 #include "d3d9_swapchain.h"
 #include "d3d9_caps.h"
+
+#include "../util/util_host_memory.h"
 #include "d3d9_util.h"
 #include "d3d9_texture.h"
 #include "d3d9_buffer.h"
@@ -4720,6 +4722,10 @@ namespace dxvk {
 
         if (!WaitForResource(mappedBuffer, pResource->GetMappingBufferSequenceNumber(Subresource), Flags))
           return D3DERR_WASSTILLDRAWING;
+
+        // The GPU wrote the buffer: drop stale lines from the CPU caches
+        if (needsReadback)
+          invalidateHostMemory(physSlice.mapPtr, physSlice.length);
       }
     }
 
@@ -4797,6 +4803,12 @@ namespace dxvk {
       return D3D_OK;
 
     pResource->SetLocked(Subresource, false);
+
+    // Make the application's writes visible to the GPU
+    if (!pResource->GetReadOnlyLocked(Subresource)) {
+      DxvkBufferSliceHandle mappedSlice = pResource->GetMappedSlice(Subresource);
+      flushHostMemory(mappedSlice.mapPtr, mappedSlice.length);
+    }
 
     // Flush image contents from staging if we aren't read only
     // and we aren't deferring for managed.
@@ -5170,6 +5182,12 @@ namespace dxvk {
       }
     }
 
+    if (!(Flags & D3DLOCK_READONLY)) {
+      uint32_t writeBegin = std::min(OffsetToLock, desc.Size);
+      uint32_t writeEnd   = SizeToLock ? std::min(OffsetToLock + SizeToLock, desc.Size) : desc.Size;
+      pResource->HostWriteRange().Conjoin(D3D9Range(writeBegin, std::max(writeBegin, writeEnd)));
+    }
+
     uint8_t* data = reinterpret_cast<uint8_t*>(physSlice.mapPtr);
     // The offset/size is not clamped to or affected by the desc size.
     data += OffsetToLock;
@@ -5235,6 +5253,15 @@ namespace dxvk {
 
     if (pResource->DecrementLockCount() != 0)
       return D3D_OK;
+
+    // Make the application's writes visible to the GPU
+    D3D9Range& hostWrites = pResource->HostWriteRange();
+
+    if (!hostWrites.IsDegenerate()) {
+      DxvkBufferSliceHandle mappedSlice = pResource->GetMappedSlice();
+      flushHostMemory(reinterpret_cast<uint8_t*>(mappedSlice.mapPtr) + hostWrites.min, hostWrites.max - hostWrites.min);
+      hostWrites.Clear();
+    }
 
     if (pResource->GetMapMode() != D3D9_COMMON_BUFFER_MAP_MODE_BUFFER)
       return D3D_OK;
