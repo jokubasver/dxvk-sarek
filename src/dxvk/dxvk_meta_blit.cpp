@@ -209,6 +209,7 @@ namespace dxvk {
   
   DxvkMetaBlitObjects::DxvkMetaBlitObjects(const DxvkDevice* device)
   : m_vkd         (device->vkd()),
+    m_depthClamp  (device->features().core.features.depthClamp),
     m_samplerCopy (createSampler(VK_FILTER_NEAREST)),
     m_samplerBlit (createSampler(VK_FILTER_LINEAR)),
     m_shaderFrag1D(createShaderModule(dxvk_blit_frag_1d)),
@@ -522,7 +523,7 @@ namespace dxvk {
     rsState.sType               = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
     rsState.pNext               = nullptr;
     rsState.flags               = 0;
-    rsState.depthClampEnable    = VK_TRUE;
+    rsState.depthClampEnable    = m_depthClamp;
     rsState.rasterizerDiscardEnable = VK_FALSE;
     rsState.polygonMode         = VK_POLYGON_MODE_FILL;
     rsState.cullMode            = VK_CULL_MODE_NONE;

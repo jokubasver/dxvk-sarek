@@ -141,6 +141,8 @@ namespace dxvk {
 
     Rc<vk::DeviceFn> m_vkd;
 
+    VkBool32 m_depthClamp;
+
     VkSampler m_sampler;
 
     VkShaderModule m_shaderVert  = VK_NULL_HANDLE;

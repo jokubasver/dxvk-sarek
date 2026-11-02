@@ -189,7 +189,9 @@ namespace dxvk {
   private:
     
     Rc<vk::DeviceFn>  m_vkd;
-    
+
+    VkBool32 m_depthClamp;
+
     VkSampler m_samplerCopy;
     VkSampler m_samplerBlit;
     

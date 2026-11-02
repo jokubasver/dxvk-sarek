@@ -4547,6 +4547,7 @@ namespace dxvk {
   }
 
 
+
   bool D3D9DeviceEx::DrawPropInstances(
           D3DPRIMITIVETYPE        PrimitiveType,
           INT                     BaseVertexIndex,
@@ -6727,6 +6728,11 @@ namespace dxvk {
     state.frontFace       = VK_FRONT_FACE_CLOCKWISE;
     state.polygonMode     = DecodeFillMode(D3DFILLMODE(rs[D3DRS_FILLMODE]));
     state.conservativeMode = VK_CONSERVATIVE_RASTERIZATION_MODE_DISABLED_EXT;
+
+    // Wireframe and point fill need fillModeNonSolid (Mali-G31 has none);
+    // a non-solid mode without it is an invalid pipeline, so draw solid.
+    if (!m_dxvkDevice->features().core.features.fillModeNonSolid)
+      state.polygonMode = VK_POLYGON_MODE_FILL;
     state.sampleCount     = 0;
 
     EmitCs([
