@@ -67,6 +67,16 @@ namespace dxvk {
             uint32_t              Key,
             D3D9ShaderPermutation Permutation) const;
 
+    /**
+     * \brief Instanced prop variant of a vertex shader
+     *
+     * Compiled from the bytecode on first use.
+     * \param [in] Mode DxsoPropInstancingStatic or Dynamic
+     */
+    Rc<DxvkShader> GetPropInstanceShader(
+            D3D9DeviceEx*         pDevice,
+            uint32_t              Mode) const;
+
     uint32_t GetMaxDefinedConstant() const { return m_maxDefinedConst; }
 
   private:
@@ -87,6 +97,7 @@ namespace dxvk {
     struct SrgbBlendVariants {
       dxvk::mutex                                    mutex;
       std::unordered_map<uint32_t, DxsoPermutations> shaders;
+      std::array<DxsoPermutations, 3>                propInstancing;
     };
 
     // Shared by the copies of this object

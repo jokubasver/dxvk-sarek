@@ -937,6 +937,26 @@ namespace dxvk {
 
     const DxsoOptions& GetDxsoOptions() const { return m_dxsoOptions; }
 
+    /**
+     * \brief Instanced prop draws (exported as DXVK_D3D9_*PropInstances)
+     *
+     * Between Begin and End, an indexed triangle list draw is drawn once per
+     * instance with the instanced variant of the bound vertex shader (see
+     * DxsoPropInstancing): the instance's model-to-world rows (12 floats
+     * each) replace c58-c60, and either its baked vertex colours (one RGBA8
+     * row of \p Vertices per instance) replace COLOR1 or its vertex lighting
+     * (26 vec4s each) replaces c21-c46. A draw that can't be instanced is
+     * skipped and End returns false, for the caller to draw one by one.
+     */
+    void BeginPropInstances(
+      const float*                  pMatrices,
+      const uint8_t* const*         ppColorRows,
+      const float*                  pLighting,
+            uint32_t                Vertices,
+            uint32_t                Instances);
+
+    bool EndPropInstances();
+
     HRESULT ResetState(D3DPRESENT_PARAMETERS* pPresentationParameters);
 
     HRESULT SetColorKeyState(DWORD stage, bool colorKeyState) {
@@ -1247,6 +1267,24 @@ namespace dxvk {
 
     D3D9BufferSlice                 m_upBuffer;
     D3D9BufferSlice                 m_managedUploadBuffer;
+
+    struct {
+      const float*                  pMatrices   = nullptr;
+      const uint8_t* const*         ppColorRows = nullptr;
+      const float*                  pLighting   = nullptr;
+      uint32_t                      vertices    = 0;
+      uint32_t                      instances   = 0;
+      bool                          failed      = false;
+    }                               m_propInstances;
+    D3D9BufferSlice                 m_propInstanceBuffer;
+
+    D3D9BufferSlice AllocPropInstanceBuffer(VkDeviceSize size);
+
+    bool DrawPropInstances(
+            D3DPRIMITIVETYPE        PrimitiveType,
+            INT                     BaseVertexIndex,
+            UINT                    StartIndex,
+            UINT                    PrimitiveCount);
 
     D3D9Cursor                      m_cursor;
 

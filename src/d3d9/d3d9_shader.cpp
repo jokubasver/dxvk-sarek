@@ -122,6 +122,31 @@ namespace dxvk {
   }
 
 
+  Rc<DxvkShader> D3D9CommonShader::GetPropInstanceShader(
+          D3D9DeviceEx*         pDevice,
+          uint32_t              Mode) const {
+    std::lock_guard<dxvk::mutex> lock(m_srgbBlend->mutex);
+
+    DxsoPermutations& variant = m_srgbBlend->propInstancing.at(Mode);
+
+    if (variant[D3D9ShaderPermutations::None] == nullptr) {
+      DxsoReader reader(reinterpret_cast<const char*>(m_bytecode.data()));
+      DxsoModule module(reader);
+      DxsoAnalysisInfo analysis = module.analyze();
+
+      DxsoModuleInfo moduleInfo;
+      moduleInfo.options = pDevice->GetDxsoOptions();
+      moduleInfo.options.propInstancing = Mode;
+
+      // No shader key: the state cache can't recreate these
+      std::string name = str::format(GetName(), "_propinst_", Mode);
+      variant = module.compile(moduleInfo, name, analysis, pDevice->GetVertexConstantLayout());
+    }
+
+    return variant[D3D9ShaderPermutations::None];
+  }
+
+
   void D3D9ShaderModuleSet::GetShaderModule(
             D3D9DeviceEx*         pDevice,
             D3D9CommonShader*     pShaderModule,

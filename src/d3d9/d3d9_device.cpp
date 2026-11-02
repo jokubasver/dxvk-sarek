@@ -2651,6 +2651,12 @@ namespace dxvk {
     if (unlikely(!PrimitiveCount || !NumVertices))
       return D3D_OK;
 
+    if (unlikely(m_propInstances.instances > 1)) {
+      if (!DrawPropInstances(PrimitiveType, BaseVertexIndex, StartIndex, PrimitiveCount))
+        m_propInstances.failed = true;
+      return D3D_OK;
+    }
+
     PrepareDraw(PrimitiveType);
 
     EmitCs([this,
@@ -4460,6 +4466,159 @@ namespace dxvk {
       return result;
     }
   }
+
+  D3D9BufferSlice D3D9DeviceEx::AllocPropInstanceBuffer(VkDeviceSize size) {
+    constexpr VkDeviceSize DefaultSize = 1 << 20;
+    constexpr VkDeviceSize Alignment   = 256;
+
+    DxvkBufferCreateInfo info;
+    info.usage  = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+    info.access = VK_ACCESS_SHADER_READ_BIT;
+    info.stages = VK_PIPELINE_STAGE_VERTEX_SHADER_BIT;
+
+    VkMemoryPropertyFlags memoryFlags
+      = VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+      | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT;
+
+    if (size > DefaultSize) {
+      // A buffer of its own for very large draws
+      info.size = size;
+
+      D3D9BufferSlice result;
+      result.slice  = DxvkBufferSlice(m_dxvkDevice->createBuffer(info, memoryFlags));
+      result.mapPtr = result.slice.mapPtr(0);
+      return result;
+    }
+
+    D3D9BufferSlice& current = m_propInstanceBuffer;
+
+    if (unlikely(!current.slice.defined())) {
+      info.size = DefaultSize;
+      current.slice  = DxvkBufferSlice(m_dxvkDevice->createBuffer(info, memoryFlags));
+      current.mapPtr = current.slice.mapPtr(0);
+    } else if (current.slice.length() < size) {
+      // Same as the temp buffers: rename the whole buffer once it's used up
+      auto physSlice = current.slice.buffer()->allocSlice();
+
+      current.slice  = DxvkBufferSlice(current.slice.buffer());
+      current.mapPtr = physSlice.mapPtr;
+
+      EmitCs([
+        cBuffer = current.slice.buffer(),
+        cSlice  = physSlice
+      ] (DxvkContext* ctx) {
+        ctx->invalidateBuffer(cBuffer, cSlice);
+      });
+    }
+
+    D3D9BufferSlice result;
+    result.slice  = current.slice.subSlice(0, size);
+    result.mapPtr = reinterpret_cast<char*>(current.mapPtr) + current.slice.offset();
+
+    VkDeviceSize adjust = std::min(align(size, Alignment), current.slice.length());
+    current.slice = current.slice.subSlice(adjust, current.slice.length() - adjust);
+    return result;
+  }
+
+
+  void D3D9DeviceEx::BeginPropInstances(
+    const float*                  pMatrices,
+    const uint8_t* const*         ppColorRows,
+    const float*                  pLighting,
+          uint32_t                Vertices,
+          uint32_t                Instances) {
+    D3D9DeviceLock lock = LockDevice();
+
+    m_propInstances.pMatrices   = pMatrices;
+    m_propInstances.ppColorRows = ppColorRows;
+    m_propInstances.pLighting   = pLighting;
+    m_propInstances.vertices    = Vertices;
+    m_propInstances.instances   = Instances;
+    m_propInstances.failed      = false;
+  }
+
+
+  bool D3D9DeviceEx::EndPropInstances() {
+    D3D9DeviceLock lock = LockDevice();
+
+    bool succeeded = !m_propInstances.failed;
+    m_propInstances = { };
+    return succeeded;
+  }
+
+
+  bool D3D9DeviceEx::DrawPropInstances(
+          D3DPRIMITIVETYPE        PrimitiveType,
+          INT                     BaseVertexIndex,
+          UINT                    StartIndex,
+          UINT                    PrimitiveCount) {
+    const auto& inst = m_propInstances;
+
+    if (PrimitiveType != D3DPT_TRIANGLELIST || !inst.pMatrices || !inst.vertices
+     || !UseProgrammableVS() || CanSWVP() || GetInstanceCount() != 1)
+      return false;
+
+    const uint32_t mode = inst.pLighting
+      ? DxsoPropInstancingDynamic
+      : DxsoPropInstancingStatic;
+
+    if (mode == DxsoPropInstancingStatic && !inst.ppColorRows)
+      return false;
+
+    // Layout in vec4s, see DxsoPropInstancing
+    const uint32_t lightingFirst = 1 + inst.instances * 3;
+    const uint32_t colorFirst    = lightingFirst
+      + (mode == DxsoPropInstancingDynamic ? inst.instances * DxsoPropLightingConstCount : 0);
+    const uint32_t colorCount    = mode == DxsoPropInstancingStatic
+      ? inst.instances * inst.vertices : 0;
+
+    const VkDeviceSize size = VkDeviceSize(colorFirst) * 16 + VkDeviceSize(colorCount) * 4;
+    D3D9BufferSlice slice = AllocPropInstanceBuffer(size);
+
+    auto* data = reinterpret_cast<uint32_t*>(slice.mapPtr);
+    data[0] = uint32_t(BaseVertexIndex);
+    data[1] = inst.vertices;
+    data[2] = colorFirst * 4;
+    data[3] = lightingFirst;
+    std::memcpy(&data[4], inst.pMatrices, inst.instances * 12 * sizeof(float));
+
+    if (mode == DxsoPropInstancingDynamic) {
+      std::memcpy(&data[lightingFirst * 4], inst.pLighting,
+        inst.instances * DxsoPropLightingConstCount * 4 * sizeof(float));
+    } else {
+      for (uint32_t i = 0; i < inst.instances; i++) {
+        std::memcpy(&data[colorFirst * 4 + i * inst.vertices],
+          inst.ppColorRows[i], inst.vertices * 4);
+      }
+    }
+
+    PrepareDraw(PrimitiveType);
+
+    const D3D9CommonShader* shader = GetCommonShader(m_state.vertexShader);
+
+    EmitCs([this,
+      cInstanced  = shader->GetPropInstanceShader(this, mode),
+      cRegular    = shader->GetShader(GetVertexShaderPermutation()),
+      cSlice      = slice.slice,
+      cPrimType   = PrimitiveType,
+      cPrimCount  = PrimitiveCount,
+      cStartIndex = StartIndex,
+      cBaseVertex = BaseVertexIndex,
+      cInstances  = inst.instances
+    ](DxvkContext* ctx) {
+      auto drawInfo = GenerateDrawInfo(cPrimType, cPrimCount, 1);
+
+      ApplyPrimitiveType(ctx, cPrimType);
+
+      ctx->bindResourceBuffer(computePropInstanceSlotId(), cSlice);
+      ctx->bindShader(VK_SHADER_STAGE_VERTEX_BIT, cInstanced);
+      ctx->drawIndexed(drawInfo.vertexCount, cInstances, cStartIndex, cBaseVertex, 0);
+      ctx->bindShader(VK_SHADER_STAGE_VERTEX_BIT, cRegular);
+    });
+
+    return true;
+  }
+
 
   bool D3D9DeviceEx::ShouldRecord() {
     return m_recorder != nullptr && !m_recorder->IsApplying();

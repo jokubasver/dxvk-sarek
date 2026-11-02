@@ -1,5 +1,6 @@
 #include "../dxvk/dxvk_instance.h"
 
+#include "d3d9_device.h"
 #include "d3d9_interface.h"
 #include "d3d9_shader_validator.h"
 
@@ -99,6 +100,19 @@ extern "C" {
   }
 
   DLLEXPORT void __stdcall Direct3D9ForceHybridEnumeration(UINT uHybrid) {
+  }
+
+  // Instanced prop draws, see D3D9DeviceEx::BeginPropInstances. The device
+  // must come from this library's Direct3DCreate9.
+  DLLEXPORT void __stdcall DXVK_D3D9_BeginPropInstances(IDirect3DDevice9* pDevice,
+      const float* pMatrices, const unsigned char* const* ppColorRows, const float* pLighting,
+      UINT Vertices, UINT Instances) {
+    static_cast<dxvk::D3D9DeviceEx*>(pDevice)->BeginPropInstances(
+      pMatrices, ppColorRows, pLighting, Vertices, Instances);
+  }
+
+  DLLEXPORT BOOL __stdcall DXVK_D3D9_EndPropInstances(IDirect3DDevice9* pDevice) {
+    return static_cast<dxvk::D3D9DeviceEx*>(pDevice)->EndPropInstances();
   }
 
 }

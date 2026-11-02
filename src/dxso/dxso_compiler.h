@@ -311,6 +311,14 @@ namespace dxvk {
     uint32_t m_cBoolBuffer = 0;
 
     ////////////////////////////////////////
+    // Instanced prop variant (DxsoPropInstancing)
+    struct {
+      uint32_t buffer        = 0;
+      uint32_t instanceIndex = 0;
+      uint32_t vertexIndex   = 0;
+    } m_propInst;
+
+    ////////////////////////////////////////
     // Constant buffer deffed mappings
     std::array<uint32_t, caps::MaxFloatConstantsSoftware> m_cFloat;
     std::array<uint32_t, caps::MaxOtherConstantsSoftware> m_cInt;
@@ -700,6 +708,14 @@ namespace dxvk {
 
     void emitPsSrgbBlend();
     void emitOutputDepthClamp();
+
+    void emitDclPropInstancing();
+    uint32_t emitPropInstanceLoad(uint32_t vec4Index);
+    uint32_t emitPropInstanceHeader(uint32_t component);
+    uint32_t emitPropInstanceIndex();
+    uint32_t emitPropInstanceStaticConstant(uint32_t constIndex);
+    uint32_t emitPropInstanceConstant(uint32_t constIndexId, uint32_t regular);
+    uint32_t emitPropInstanceColor();
 
     void emitLinkerOutputSetup();
 

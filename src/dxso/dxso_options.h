@@ -75,7 +75,34 @@ namespace dxvk {
     /// sRGB writes were off: blending happens in the shader in gamma space,
     /// see DxsoSrgbBlendKey. 0 for a regular shader.
     uint32_t srgbBlendKey = 0;
+
+    /// Vertex shader variant for instanced prop draws, see
+    /// DxsoPropInstancing. 0 for a regular shader.
+    uint32_t propInstancing = 0;
   };
+
+
+  /**
+   * \brief Instanced prop vertex shader variants
+   *
+   * The instance buffer (computePropInstanceSlotId) holds, in vec4 units:
+   * a header (base vertex, vertex count, first colour as a uint index,
+   * first lighting vec4, as uint bits), then three model-to-world rows per
+   * instance, then 26 lighting vec4s per instance (dynamic props), then one
+   * packed RGBA8 colour per vertex per instance (static props).
+   * The variant reads the model matrix constants c58-c60 from the instance's
+   * rows, and either the baked vertex colour (COLOR1) from the instance's
+   * colours or the vertex lighting constants c21-c46 from its lighting.
+   */
+  enum DxsoPropInstancing : uint32_t {
+    DxsoPropInstancingNone    = 0,
+    DxsoPropInstancingStatic  = 1,
+    DxsoPropInstancingDynamic = 2,
+  };
+
+  constexpr uint32_t DxsoPropModelConstFirst    = 58;
+  constexpr uint32_t DxsoPropLightingConstFirst = 21;
+  constexpr uint32_t DxsoPropLightingConstCount = 26;
 
 
   /**

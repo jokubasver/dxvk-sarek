@@ -273,6 +273,10 @@ namespace dxvk {
       this->emitDclConstantBuffer();
     }
 
+    if (m_programInfo.type() == DxsoProgramTypes::VertexShader
+     && m_moduleInfo.options.propInstancing != DxsoPropInstancingNone)
+      this->emitDclPropInstancing();
+
     m_depthSpecConstant = m_module.specConst32(m_module.defIntType(32, 0), 0);
     m_module.decorateSpecId(m_depthSpecConstant, getSpecId(D3D9SpecConstantId::SamplerDepthMode));
     m_module.setDebugName(m_depthSpecConstant, "depthSamplers");
@@ -979,7 +983,10 @@ namespace dxvk {
       case DxsoRegisterType::Const:
         result.type = { DxsoScalarType::Float32, 4 };
 
-        if (!relative)
+        if (!relative && m_propInst.buffer)
+          result.id = emitPropInstanceStaticConstant(reg.id.num);
+
+        if (!relative && !result.id)
           result.id = m_cFloat.at(reg.id.num);
         break;
 
@@ -1072,6 +1079,9 @@ namespace dxvk {
         result.id = m_module.opSelect(typeId, cond, result.id,
           m_module.constvec4f32(0.0f, 0.0f, 0.0f, 0.0f));
       }
+
+      if (reg.id.type == DxsoRegisterType::Const && relative && m_propInst.buffer)
+        result.id = emitPropInstanceConstant(relativeIdx, result.id);
     } else {
       // Bool constants have no relative indexing, so we can do the bitfield
       // magic for SWVP at compile time.
@@ -3538,6 +3548,11 @@ void DxsoCompiler::emitControlFlowGenericLoop(
           m_ps.specularColorIn = inputPtr.id;
       }
 
+      // Instanced static props: the baked vertex colour is the instance's
+      if (m_propInst.buffer && m_moduleInfo.options.propInstancing == DxsoPropInstancingStatic
+       && elem.semantic.usage == DxsoUsage::Color && elem.semantic.usageIndex == 1)
+        workingReg.id = emitPropInstanceColor();
+
       m_module.opStore(indexPtr.id, workingReg.id);
     }
   }
@@ -4138,6 +4153,166 @@ void DxsoCompiler::emitControlFlowGenericLoop(
     result[3] = resAlpha;
 
     m_module.opStore(oC0.id, m_module.opCompositeConstruct(vec4Type, result.size(), result.data()));
+  }
+
+
+  void DxsoCompiler::emitDclPropInstancing() {
+    // struct prop_instances_t { vec4 data[]; }, read-only storage buffer
+    uint32_t arrayType = m_module.defRuntimeArrayTypeUnique(
+      getVectorTypeId({ DxsoScalarType::Float32, 4 }));
+    m_module.decorateArrayStride(arrayType, 16);
+
+    uint32_t structType = m_module.defStructTypeUnique(1, &arrayType);
+    m_module.decorate(structType, spv::DecorationBufferBlock);
+    m_module.memberDecorateOffset(structType, 0, 0);
+    m_module.setDebugName(structType, "prop_instances_t");
+    m_module.setDebugMemberName(structType, 0, "data");
+
+    m_propInst.buffer = m_module.newVar(
+      m_module.defPointerType(structType, spv::StorageClassUniform),
+      spv::StorageClassUniform);
+    m_module.setDebugName(m_propInst.buffer, "prop_instances");
+
+    const uint32_t bindingId = computePropInstanceSlotId();
+    m_module.decorateDescriptorSet(m_propInst.buffer, 0);
+    m_module.decorateBinding(m_propInst.buffer, bindingId);
+    m_module.decorate(m_propInst.buffer, spv::DecorationNonWritable);
+
+    DxvkResourceSlot resource;
+    resource.slot   = bindingId;
+    resource.type   = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    resource.view   = VK_IMAGE_VIEW_TYPE_MAX_ENUM;
+    resource.access = VK_ACCESS_SHADER_READ_BIT;
+    m_resourceSlots.push_back(resource);
+
+    DxsoRegisterInfo index;
+    index.type   = { DxsoScalarType::Sint32, 1, 0 };
+    index.sclass = spv::StorageClassInput;
+
+    m_propInst.instanceIndex = emitNewBuiltinVariable(
+      index, spv::BuiltInInstanceIndex, "gl_InstanceIndex", 0);
+    m_propInst.vertexIndex = emitNewBuiltinVariable(
+      index, spv::BuiltInVertexIndex, "gl_VertexIndex", 0);
+  }
+
+
+  uint32_t DxsoCompiler::emitPropInstanceLoad(uint32_t vec4Index) {
+    uint32_t vec4Type = getVectorTypeId({ DxsoScalarType::Float32, 4 });
+    std::array<uint32_t, 2> indices = { m_module.constu32(0), vec4Index };
+
+    uint32_t ptrId = m_module.opAccessChain(
+      m_module.defPointerType(vec4Type, spv::StorageClassUniform),
+      m_propInst.buffer, indices.size(), indices.data());
+    return m_module.opLoad(vec4Type, ptrId);
+  }
+
+
+  uint32_t DxsoCompiler::emitPropInstanceHeader(uint32_t component) {
+    uint32_t value = m_module.opCompositeExtract(
+      getScalarTypeId(DxsoScalarType::Float32),
+      emitPropInstanceLoad(m_module.constu32(0)), 1, &component);
+    return m_module.opBitcast(getScalarTypeId(DxsoScalarType::Uint32), value);
+  }
+
+
+  uint32_t DxsoCompiler::emitPropInstanceIndex() {
+    return m_module.opBitcast(getScalarTypeId(DxsoScalarType::Uint32),
+      m_module.opLoad(getScalarTypeId(DxsoScalarType::Sint32), m_propInst.instanceIndex));
+  }
+
+
+  uint32_t DxsoCompiler::emitPropInstanceStaticConstant(uint32_t constIndex) {
+    uint32_t uintType = getScalarTypeId(DxsoScalarType::Uint32);
+
+    // Model rows: data[1 + instance * 3 + row]
+    if (constIndex - DxsoPropModelConstFirst < 3) {
+      uint32_t index = m_module.opIAdd(uintType,
+        m_module.opIMul(uintType, emitPropInstanceIndex(), m_module.constu32(3)),
+        m_module.constu32(1 + constIndex - DxsoPropModelConstFirst));
+      return emitPropInstanceLoad(index);
+    }
+
+    // Lighting: data[lighting + instance * 26 + n]
+    if (m_moduleInfo.options.propInstancing == DxsoPropInstancingDynamic
+     && constIndex - DxsoPropLightingConstFirst < DxsoPropLightingConstCount) {
+      uint32_t index = m_module.opIAdd(uintType, emitPropInstanceHeader(3),
+        m_module.opIAdd(uintType,
+          m_module.opIMul(uintType, emitPropInstanceIndex(), m_module.constu32(DxsoPropLightingConstCount)),
+          m_module.constu32(constIndex - DxsoPropLightingConstFirst)));
+      return emitPropInstanceLoad(index);
+    }
+
+    return 0;
+  }
+
+
+  uint32_t DxsoCompiler::emitPropInstanceConstant(uint32_t constIndexId, uint32_t regular) {
+    // A relative read: the index is only known at run time, so read both
+    // and pick. The instance reads are clamped into their own range.
+    uint32_t uintType  = getScalarTypeId(DxsoScalarType::Uint32);
+    uint32_t vec4Type  = getVectorTypeId({ DxsoScalarType::Float32, 4 });
+    uint32_t bvec4Type = getVectorTypeId({ DxsoScalarType::Bool, 4 });
+
+    auto select = [&] (uint32_t cond, uint32_t a, uint32_t b) {
+      std::array<uint32_t, 4> conds = { cond, cond, cond, cond };
+      return m_module.opSelect(vec4Type,
+        m_module.opCompositeConstruct(bvec4Type, conds.size(), conds.data()), a, b);
+    };
+
+    uint32_t instance = emitPropInstanceIndex();
+
+    uint32_t row = m_module.opISub(uintType, constIndexId, m_module.constu32(DxsoPropModelConstFirst));
+    uint32_t inModel = m_module.opULessThan(m_module.defBoolType(), row, m_module.constu32(3));
+    uint32_t modelIndex = m_module.opIAdd(uintType,
+      m_module.opIMul(uintType, instance, m_module.constu32(3)),
+      m_module.opIAdd(uintType, m_module.opUMin(uintType, row, m_module.constu32(2)), m_module.constu32(1)));
+    uint32_t value = select(inModel, emitPropInstanceLoad(modelIndex), regular);
+
+    if (m_moduleInfo.options.propInstancing == DxsoPropInstancingDynamic) {
+      uint32_t n = m_module.opISub(uintType, constIndexId, m_module.constu32(DxsoPropLightingConstFirst));
+      uint32_t inLighting = m_module.opULessThan(m_module.defBoolType(), n, m_module.constu32(DxsoPropLightingConstCount));
+      uint32_t lightingIndex = m_module.opIAdd(uintType, emitPropInstanceHeader(3),
+        m_module.opIAdd(uintType,
+          m_module.opIMul(uintType, instance, m_module.constu32(DxsoPropLightingConstCount)),
+          m_module.opUMin(uintType, n, m_module.constu32(DxsoPropLightingConstCount - 1))));
+      value = select(inLighting, emitPropInstanceLoad(lightingIndex), value);
+    }
+
+    return value;
+  }
+
+
+  uint32_t DxsoCompiler::emitPropInstanceColor() {
+    // colours[first + instance * vertices + (gl_VertexIndex - base vertex)],
+    // packed RGBA8 (red in the low byte), four to a vec4
+    uint32_t uintType  = getScalarTypeId(DxsoScalarType::Uint32);
+    uint32_t uvec4Type = getVectorTypeId({ DxsoScalarType::Uint32, 4 });
+    uint32_t vec4Type  = getVectorTypeId({ DxsoScalarType::Float32, 4 });
+
+    uint32_t vertex = m_module.opISub(uintType,
+      m_module.opBitcast(uintType, m_module.opLoad(getScalarTypeId(DxsoScalarType::Sint32), m_propInst.vertexIndex)),
+      emitPropInstanceHeader(0));
+    uint32_t index = m_module.opIAdd(uintType, emitPropInstanceHeader(2),
+      m_module.opIAdd(uintType,
+        m_module.opIMul(uintType, emitPropInstanceIndex(), emitPropInstanceHeader(1)),
+        vertex));
+
+    uint32_t packed = m_module.opBitcast(uintType, m_module.opVectorExtractDynamic(
+      getScalarTypeId(DxsoScalarType::Float32),
+      emitPropInstanceLoad(m_module.opShiftRightLogical(uintType, index, m_module.constu32(2))),
+      m_module.opBitwiseAnd(uintType, index, m_module.constu32(3))));
+
+    std::array<uint32_t, 4> bytes;
+    for (uint32_t i = 0; i < 4; i++) {
+      bytes[i] = m_module.opBitwiseAnd(uintType,
+        m_module.opShiftRightLogical(uintType, packed, m_module.constu32(8 * i)),
+        m_module.constu32(0xff));
+    }
+
+    uint32_t color = m_module.opConvertUtoF(vec4Type,
+      m_module.opCompositeConstruct(uvec4Type, bytes.size(), bytes.data()));
+    return m_module.opFMul(vec4Type, color,
+      m_module.constvec4f32(1.0f / 255.0f, 1.0f / 255.0f, 1.0f / 255.0f, 1.0f / 255.0f));
   }
 
 

@@ -76,6 +76,11 @@ namespace dxvk {
     return getSWVPBufferSlot() + 1 + (caps::MaxTexturesVS + caps::MaxTexturesPS) * (SamplerSlotVariants - 1);
   }
 
+  // Instance data of the instanced prop vertex shader variants
+  constexpr uint32_t computePropInstanceSlotId() {
+    return computeInputAttachmentSlotId() + 1;
+  }
+
   uint32_t RegisterLinkerSlot(DxsoSemantic semantic);
 
 }
