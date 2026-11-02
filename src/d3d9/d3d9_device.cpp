@@ -4803,6 +4803,16 @@ namespace dxvk {
     bool needsReadback = pResource->NeedsReachback(Subresource) || renderable;
     pResource->SetNeedsReadback(Subresource, false);
 
+    // The buffer was evicted at the last unlock, and only the box locked now
+    // will be uploaded: the application's writes are all that matter. Not
+    // while another subresource is locked, as the dirty box is shared.
+    const bool skipReadback = needsReadback && alloced && managed && !renderable && !readOnly
+      && m_d3d9Options.evictManagedOnUnlock && m_d3d9Options.managedLockSkipReadback
+      && !pResource->IsAnySubresourceLocked();
+
+    if (skipReadback)
+      needsReadback = false;
+
     DxvkBufferSliceHandle physSlice;
 
     if (Flags & D3DLOCK_DISCARD) {
@@ -4828,7 +4838,9 @@ namespace dxvk {
         && (usesStagingBuffer || readOnly);
 
       if (alloced && !needsReadback) {
-        std::memset(physSlice.mapPtr, 0, physSlice.length);
+        // Nothing outside the locked box is uploaded after a skipped readback
+        if (!skipReadback)
+          std::memset(physSlice.mapPtr, 0, physSlice.length);
       }
       else if (!skipWait) {
         if (unlikely(needsReadback) && pResource->GetImage() != nullptr) {

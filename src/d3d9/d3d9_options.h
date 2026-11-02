@@ -52,6 +52,13 @@ namespace dxvk {
     /// Whether or not managed resources should stay in memory until unlock, or until manually evicted.
     bool evictManagedOnUnlock;
 
+    /// With evictManagedOnUnlock: a write lock of an evicted managed texture
+    /// gets a fresh buffer instead of a copy of the image read back from the
+    /// GPU, which waits for all queued GPU work. Only the locked box is
+    /// uploaded, so this is correct when the application writes all of it
+    /// (Source does: texture downloads and TexSubImage2D).
+    bool managedLockSkipReadback;
+
     /// Whether or not to set the process as DPI aware in Windows when the API interface is created.
     bool dpiAware;
 
