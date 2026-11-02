@@ -269,7 +269,7 @@ namespace dxvk {
           DxvkDeviceFeatures  enabledFeatures) {
     DxvkDeviceExtensions devExtensions;
 
-    std::array<DxvkExt*, 36> devExtensionList = {{
+    std::array<DxvkExt*, 37> devExtensionList = {{
       &devExtensions.amdMemoryOverallocationBehaviour,
       &devExtensions.amdShaderFragmentMask,
       &devExtensions.ext4444Formats,
@@ -304,6 +304,7 @@ namespace dxvk {
       &devExtensions.khrShaderFloatControls,
       &devExtensions.khrSwapchain,
       &devExtensions.khrTimelineSemaphore,
+      &devExtensions.khrVertexAttributeDivisor,
       &devExtensions.nvxBinaryImport,
       &devExtensions.nvxImageViewHandle,
     }};
@@ -443,7 +444,9 @@ namespace dxvk {
       enabledFeatures.extTransformFeedback.pNext = std::exchange(enabledFeatures.core.pNext, &enabledFeatures.extTransformFeedback);
     }
 
-    if (devExtensions.extVertexAttributeDivisor.revision() >= 3) {
+    // The KHR extension shares the EXT revision 3 feature structure
+    // (same type value and members), so either one fills it in.
+    if (devExtensions.extVertexAttributeDivisor.revision() >= 3 || devExtensions.khrVertexAttributeDivisor) {
       enabledFeatures.extVertexAttributeDivisor.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VERTEX_ATTRIBUTE_DIVISOR_FEATURES_EXT;
       enabledFeatures.extVertexAttributeDivisor.pNext = std::exchange(enabledFeatures.core.pNext, &enabledFeatures.extVertexAttributeDivisor);
     }
@@ -786,7 +789,10 @@ namespace dxvk {
 
     uint32_t divisorRevision = m_deviceExtensions.supports(VK_EXT_VERTEX_ATTRIBUTE_DIVISOR_EXTENSION_NAME);
 
-    if (divisorRevision >= 3) {
+    // Drivers that only expose the promoted VK_KHR_vertex_attribute_divisor
+    // (the Mali g29p1 blob) have no EXT name at all; its feature structure
+    // is the EXT revision 3 one.
+    if (divisorRevision >= 3 || m_deviceExtensions.supports(VK_KHR_VERTEX_ATTRIBUTE_DIVISOR_EXTENSION_NAME)) {
       m_deviceFeatures.extVertexAttributeDivisor.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VERTEX_ATTRIBUTE_DIVISOR_FEATURES_EXT;
       m_deviceFeatures.extVertexAttributeDivisor.pNext = std::exchange(m_deviceFeatures.core.pNext, &m_deviceFeatures.extVertexAttributeDivisor);
     } else if (divisorRevision) {
