@@ -131,6 +131,14 @@ namespace dxvk {
     if (device != nullptr && !device->features().extMultisampledRenderToSingleSampled.multisampledRenderToSingleSampled)
       this->msaaRenderToSingleSampled = false;
 
+    this->srgbFramebufferFetch = device != nullptr
+      && device->features().extRasterizationOrderAttachmentAccess.rasterizationOrderColorAttachmentAccess
+      && adapter->matchesDriver(VK_DRIVER_ID_ARM_PROPRIETARY);
+    applyTristate(this->srgbFramebufferFetch, config.getOption<Tristate>("d3d9.srgbFramebufferFetch", Tristate::Auto));
+
+    if (device == nullptr || !device->features().extRasterizationOrderAttachmentAccess.rasterizationOrderColorAttachmentAccess)
+      this->srgbFramebufferFetch = false;
+
     std::string floatEmulation = Config::toLower(config.getOption<std::string>("d3d9.floatEmulation", "auto"));
     if (floatEmulation == "strict") {
       d3d9FloatEmulation = D3D9FloatEmulation::Strict;

@@ -161,6 +161,13 @@ namespace dxvk {
     /// the samples then stay in tile memory, as with GLES on tilers.
     bool msaaRenderToSingleSampled;
 
+    /// Draws with sRGB writes off go through the sRGB view of render
+    /// target 0 and blend in the shader in gamma space, reading the
+    /// stored colour as an input attachment in rasterization order.
+    /// Keeps the render pass going where switching to the linear
+    /// view would end it (tilers store and reload at each pass).
+    bool srgbFramebufferFetch;
+
     /// Forces an MSAA level on the swapchain
     int32_t forceSwapchainMSAA;
 

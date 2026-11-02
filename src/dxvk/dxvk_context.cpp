@@ -4533,6 +4533,21 @@ namespace dxvk {
             descriptors[i].image = m_common->dummyResources().imageViewDescriptor(binding.view, false);
           } break;
 
+        case VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT:
+          // Framebuffer fetch of the bound colour attachment, which is in
+          // GENERAL layout for the pass. The shader is only used with it.
+          if (res.imageView != nullptr && res.imageView->handle(binding.view) != VK_NULL_HANDLE) {
+            descriptors[i].image.sampler     = VK_NULL_HANDLE;
+            descriptors[i].image.imageView   = res.imageView->handle(binding.view);
+            descriptors[i].image.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+
+            if (m_rcTracked.set(binding.slot))
+              m_cmd->trackResource<DxvkAccess::None>(res.imageView);
+          } else {
+            bindMask.clr(i);
+            descriptors[i].image = m_common->dummyResources().imageViewDescriptor(binding.view, true);
+          } break;
+
         case VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:
           if (res.sampler != nullptr && res.imageView != nullptr
            && res.imageView->handle(binding.view) != VK_NULL_HANDLE) {

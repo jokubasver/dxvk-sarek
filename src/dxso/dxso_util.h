@@ -71,6 +71,11 @@ namespace dxvk {
     return getSWVPBufferSlot() + 1 + stageBase + samplerIndex * stride + variant - 1;
   }
 
+  // Colour attachment 0 read by gamma-space blending pixel shader variants
+  constexpr uint32_t computeInputAttachmentSlotId() {
+    return getSWVPBufferSlot() + 1 + (caps::MaxTexturesVS + caps::MaxTexturesPS) * (SamplerSlotVariants - 1);
+  }
+
   uint32_t RegisterLinkerSlot(DxsoSemantic semantic);
 
 }

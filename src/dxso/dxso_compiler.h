@@ -697,6 +697,8 @@ namespace dxvk {
     void setupRenderStateInfo();
     void emitFog();
     void emitPsProcessing();
+
+    void emitPsSrgbBlend();
     void emitOutputDepthClamp();
 
     void emitLinkerOutputSetup();

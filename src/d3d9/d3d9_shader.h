@@ -56,6 +56,17 @@ namespace dxvk {
 
     const DxsoProgramInfo& GetInfo() const { return m_info; }
 
+    /**
+     * \brief Gamma-space blending variant of a pixel shader
+     *
+     * Compiled from the bytecode on first use.
+     * \param [in] Key Packed DxsoSrgbBlendKey
+     */
+    Rc<DxvkShader> GetSrgbBlendShader(
+            D3D9DeviceEx*         pDevice,
+            uint32_t              Key,
+            D3D9ShaderPermutation Permutation) const;
+
     uint32_t GetMaxDefinedConstant() const { return m_maxDefinedConst; }
 
   private:
@@ -72,6 +83,14 @@ namespace dxvk {
     DxsoPermutations      m_shaders;
 
     std::vector<uint8_t>  m_bytecode;
+
+    struct SrgbBlendVariants {
+      dxvk::mutex                                    mutex;
+      std::unordered_map<uint32_t, DxsoPermutations> shaders;
+    };
+
+    // Shared by the copies of this object
+    std::shared_ptr<SrgbBlendVariants> m_srgbBlend = std::make_shared<SrgbBlendVariants>();
 
   };
 

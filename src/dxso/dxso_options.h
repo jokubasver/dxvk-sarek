@@ -70,6 +70,43 @@ namespace dxvk {
     /// Use a Taylor approximation for sin/cos instead of the
     /// native GLSL.std.450 Sin/Cos instructions.
     bool sincosEmulation = false;
+
+    /// Pixel shader variant that writes colour 0 through an sRGB view as if
+    /// sRGB writes were off: blending happens in the shader in gamma space,
+    /// see DxsoSrgbBlendKey. 0 for a regular shader.
+    uint32_t srgbBlendKey = 0;
   };
+
+
+  /**
+   * \brief Blend state of a gamma-space blending shader variant
+   *
+   * Packed Vulkan blend factors and ops of colour attachment 0.
+   */
+  struct DxsoSrgbBlendKey {
+    uint32_t valid      : 1;
+    uint32_t blend      : 1;
+    uint32_t colorSrc   : 5;
+    uint32_t colorDst   : 5;
+    uint32_t colorOp    : 3;
+    uint32_t alphaSrc   : 5;
+    uint32_t alphaDst   : 5;
+    uint32_t alphaOp    : 3;
+    uint32_t reserved   : 4;
+
+    uint32_t pack() const {
+      uint32_t result;
+      std::memcpy(&result, this, sizeof(result));
+      return result;
+    }
+
+    static DxsoSrgbBlendKey unpack(uint32_t key) {
+      DxsoSrgbBlendKey result;
+      std::memcpy(&result, &key, sizeof(result));
+      return result;
+    }
+  };
+
+  static_assert(sizeof(DxsoSrgbBlendKey) == sizeof(uint32_t));
 
 }

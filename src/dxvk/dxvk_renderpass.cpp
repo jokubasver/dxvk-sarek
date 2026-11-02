@@ -7,7 +7,8 @@ namespace dxvk {
   
   bool DxvkRenderPassFormat::eq(const DxvkRenderPassFormat& fmt) const {
     bool eq = sampleCount == fmt.sampleCount
-           && renderSampleCount == fmt.renderSampleCount;
+           && renderSampleCount == fmt.renderSampleCount
+           && colorInputMask == fmt.colorInputMask;
     
     for (uint32_t i = 0; i < MaxNumRenderTargets && eq; i++) {
       eq &= color[i].format == fmt.color[i].format
@@ -25,6 +26,7 @@ namespace dxvk {
     DxvkHashState state;
     state.add(uint32_t(sampleCount));
     state.add(uint32_t(renderSampleCount));
+    state.add(colorInputMask);
 
     for (uint32_t i = 0; i < MaxNumRenderTargets; i++) {
       state.add(uint32_t(color[i].format));
@@ -154,6 +156,17 @@ namespace dxvk {
     
     if (m_format.depth.format == VK_FORMAT_UNDEFINED)
       subpass.pDepthStencilAttachment = nullptr;
+
+    // Framebuffer fetch: shaders read colour attachment 0 as input
+    // attachment 0, ordered against earlier fragments by the subpass flag
+    VkAttachmentReference inputRef = { VK_ATTACHMENT_UNUSED, VK_IMAGE_LAYOUT_UNDEFINED };
+
+    if ((m_format.colorInputMask & 1) && colorRef[0].attachment != VK_ATTACHMENT_UNUSED) {
+      inputRef = colorRef[0];
+      subpass.flags                |= VK_SUBPASS_DESCRIPTION_RASTERIZATION_ORDER_ATTACHMENT_COLOR_ACCESS_BIT_EXT;
+      subpass.inputAttachmentCount  = 1;
+      subpass.pInputAttachments     = &inputRef;
+    }
     
     std::array<VkSubpassDependency, 3> subpassDeps;
     uint32_t                           subpassDepCount = 0;
@@ -193,6 +206,11 @@ namespace dxvk {
 
       if (ops.colorOps[i].loadOp == VK_ATTACHMENT_LOAD_OP_LOAD)
         renderAccess |= VK_ACCESS_COLOR_ATTACHMENT_READ_BIT;
+    }
+
+    if (subpass.inputAttachmentCount) {
+      renderStages |= VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+      renderAccess |= VK_ACCESS_INPUT_ATTACHMENT_READ_BIT;
     }
 
     if (renderStages) {
@@ -280,6 +298,13 @@ namespace dxvk {
     }
 
     VkAttachmentReference2 depthRef2 = { VK_STRUCTURE_TYPE_ATTACHMENT_REFERENCE_2 };
+    VkAttachmentReference2 inputRef2 = { VK_STRUCTURE_TYPE_ATTACHMENT_REFERENCE_2 };
+
+    if (subpass.inputAttachmentCount) {
+      inputRef2.attachment = subpass.pInputAttachments[0].attachment;
+      inputRef2.layout     = subpass.pInputAttachments[0].layout;
+      inputRef2.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    }
 
     VkSubpassDescriptionDepthStencilResolve dsResolve = { VK_STRUCTURE_TYPE_SUBPASS_DESCRIPTION_DEPTH_STENCIL_RESOLVE };
     dsResolve.depthResolveMode   = VK_RESOLVE_MODE_SAMPLE_ZERO_BIT;
@@ -300,6 +325,8 @@ namespace dxvk {
     VkSubpassDescription2 subpass2 = { VK_STRUCTURE_TYPE_SUBPASS_DESCRIPTION_2, &msrtss };
     subpass2.flags                   = subpass.flags;
     subpass2.pipelineBindPoint       = subpass.pipelineBindPoint;
+    subpass2.inputAttachmentCount    = subpass.inputAttachmentCount;
+    subpass2.pInputAttachments       = subpass.inputAttachmentCount ? &inputRef2 : nullptr;
     subpass2.colorAttachmentCount    = subpass.colorAttachmentCount;
     subpass2.pColorAttachments       = colorRefs2.data();
     subpass2.pDepthStencilAttachment = subpass.pDepthStencilAttachment ? &depthRef2 : nullptr;

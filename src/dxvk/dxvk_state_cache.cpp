@@ -583,6 +583,11 @@ namespace dxvk {
 
         entry.format.color[i].format = VkFormat(imageFormat);
         entry.format.color[i].layout = unpackImageLayout(imageLayout);
+
+        if (imageLayout == 0x82) {
+          entry.format.color[i].layout = VK_IMAGE_LAYOUT_GENERAL;
+          entry.format.colorInputMask |= 1u << i;
+        }
       }
 
       if (!validateRenderPassFormat(entry.format))
@@ -679,7 +684,8 @@ namespace dxvk {
 
       for (uint32_t i = 0; i < MaxNumRenderTargets; i++) {
         data.write(uint8_t(entry.format.color[i].format));
-        data.write(packImageLayout(entry.format.color[i].layout));
+        data.write((entry.format.colorInputMask & (1u << i))
+          ? uint8_t(0x82) : packImageLayout(entry.format.color[i].layout));
       }
 
       // Write out common pipeline state

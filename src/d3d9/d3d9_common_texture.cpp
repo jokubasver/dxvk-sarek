@@ -316,6 +316,15 @@ namespace dxvk {
                        |  VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
     }
 
+    // Render targets with an sRGB view can be read back by the shader while
+    // drawing through that view, see D3D9Options::srgbFramebufferFetch
+    if ((m_desc.Usage & D3DUSAGE_RENDERTARGET) && m_mapping.FormatSrgb
+     && m_device->GetOptions()->srgbFramebufferFetch) {
+      imageInfo.usage  |= VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT;
+      imageInfo.stages |= VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+      imageInfo.access |= VK_ACCESS_INPUT_ATTACHMENT_READ_BIT;
+    }
+
     if (m_desc.Usage & D3DUSAGE_DEPTHSTENCIL) {
       imageInfo.usage  |= VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
       imageInfo.stages |= VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT
@@ -607,6 +616,11 @@ namespace dxvk {
     if (UsageFlags == VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT)
       viewInfo.swizzle = { VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY,
                            VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY };
+
+    // Render target views of fetchable images are the input attachment too
+    if (UsageFlags == VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT
+     && (GetImage()->info().usage & VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT))
+      viewInfo.usage |= VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT;
 
     // Create the underlying image view object
     return m_device->GetDXVKDevice()->createImageView(GetImage(), viewInfo);

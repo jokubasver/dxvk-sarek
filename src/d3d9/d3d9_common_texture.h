@@ -345,8 +345,10 @@ namespace dxvk {
     }
 
     VkImageLayout DetermineRenderTargetLayout() const {
+      // An input attachment of the pass must be in GENERAL layout
       return m_image != nullptr &&
              m_image->info().tiling == VK_IMAGE_TILING_OPTIMAL &&
+            !(m_image->info().usage & VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT) &&
             !m_hazardous
         ? VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
         : VK_IMAGE_LAYOUT_GENERAL;

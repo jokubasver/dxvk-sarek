@@ -269,7 +269,7 @@ namespace dxvk {
           DxvkDeviceFeatures  enabledFeatures) {
     DxvkDeviceExtensions devExtensions;
 
-    std::array<DxvkExt*, 35> devExtensionList = {{
+    std::array<DxvkExt*, 36> devExtensionList = {{
       &devExtensions.amdMemoryOverallocationBehaviour,
       &devExtensions.amdShaderFragmentMask,
       &devExtensions.ext4444Formats,
@@ -284,6 +284,7 @@ namespace dxvk {
       &devExtensions.extMemoryPriority,
       &devExtensions.extMultisampledRenderToSingleSampled,
       &devExtensions.extNonSeamlessCubeMap,
+      &devExtensions.extRasterizationOrderAttachmentAccess,
       &devExtensions.extRobustness2,
       &devExtensions.extShaderDemoteToHelperInvocation,
       &devExtensions.extShaderStencilExport,
@@ -390,6 +391,11 @@ namespace dxvk {
     if (devExtensions.extMultisampledRenderToSingleSampled) {
       enabledFeatures.extMultisampledRenderToSingleSampled.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MULTISAMPLED_RENDER_TO_SINGLE_SAMPLED_FEATURES_EXT;
       enabledFeatures.extMultisampledRenderToSingleSampled.pNext = std::exchange(enabledFeatures.core.pNext, &enabledFeatures.extMultisampledRenderToSingleSampled);
+    }
+
+    if (devExtensions.extRasterizationOrderAttachmentAccess) {
+      enabledFeatures.extRasterizationOrderAttachmentAccess.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RASTERIZATION_ORDER_ATTACHMENT_ACCESS_FEATURES_EXT;
+      enabledFeatures.extRasterizationOrderAttachmentAccess.pNext = std::exchange(enabledFeatures.core.pNext, &enabledFeatures.extRasterizationOrderAttachmentAccess);
     }
 
     if (devExtensions.extDepthClipEnable) {
@@ -726,6 +732,11 @@ namespace dxvk {
     if (m_deviceExtensions.supports(VK_EXT_MULTISAMPLED_RENDER_TO_SINGLE_SAMPLED_EXTENSION_NAME)) {
       m_deviceFeatures.extMultisampledRenderToSingleSampled.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MULTISAMPLED_RENDER_TO_SINGLE_SAMPLED_FEATURES_EXT;
       m_deviceFeatures.extMultisampledRenderToSingleSampled.pNext = std::exchange(m_deviceFeatures.core.pNext, &m_deviceFeatures.extMultisampledRenderToSingleSampled);
+    }
+
+    if (m_deviceExtensions.supports(VK_EXT_RASTERIZATION_ORDER_ATTACHMENT_ACCESS_EXTENSION_NAME)) {
+      m_deviceFeatures.extRasterizationOrderAttachmentAccess.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RASTERIZATION_ORDER_ATTACHMENT_ACCESS_FEATURES_EXT;
+      m_deviceFeatures.extRasterizationOrderAttachmentAccess.pNext = std::exchange(m_deviceFeatures.core.pNext, &m_deviceFeatures.extRasterizationOrderAttachmentAccess);
     }
 
     if (m_deviceExtensions.supports(VK_EXT_DEPTH_CLIP_ENABLE_EXTENSION_NAME)) {

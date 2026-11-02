@@ -95,6 +95,33 @@ namespace dxvk {
   }
 
 
+  Rc<DxvkShader> D3D9CommonShader::GetSrgbBlendShader(
+          D3D9DeviceEx*         pDevice,
+          uint32_t              Key,
+          D3D9ShaderPermutation Permutation) const {
+    std::lock_guard<dxvk::mutex> lock(m_srgbBlend->mutex);
+
+    auto entry = m_srgbBlend->shaders.find(Key);
+
+    if (entry == m_srgbBlend->shaders.end()) {
+      DxsoReader reader(reinterpret_cast<const char*>(m_bytecode.data()));
+      DxsoModule module(reader);
+      DxsoAnalysisInfo analysis = module.analyze();
+
+      DxsoModuleInfo moduleInfo;
+      moduleInfo.options = pDevice->GetDxsoOptions();
+      moduleInfo.options.srgbBlendKey = Key;
+
+      // No shader key: the state cache can't recreate these
+      std::string name = str::format(GetName(), "_srgbblend_", std::hex, Key);
+      entry = m_srgbBlend->shaders.insert({ Key,
+        module.compile(moduleInfo, name, analysis, pDevice->GetPixelConstantLayout()) }).first;
+    }
+
+    return entry->second[Permutation];
+  }
+
+
   void D3D9ShaderModuleSet::GetShaderModule(
             D3D9DeviceEx*         pDevice,
             D3D9CommonShader*     pShaderModule,

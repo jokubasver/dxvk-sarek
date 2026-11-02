@@ -4364,6 +4364,10 @@ namespace dxvk {
     enabled.extMultisampledRenderToSingleSampled.multisampledRenderToSingleSampled =
       supported.extMultisampledRenderToSingleSampled.multisampledRenderToSingleSampled;
 
+    // Gamma-space blending in the shader, see D3D9Options::srgbFramebufferFetch
+    enabled.extRasterizationOrderAttachmentAccess.rasterizationOrderColorAttachmentAccess =
+      supported.extRasterizationOrderAttachmentAccess.rasterizationOrderColorAttachmentAccess;
+
     return enabled;
   }
 
@@ -6192,10 +6196,26 @@ namespace dxvk {
        && !(keep && coversUsed(m_state.renderTargets[i]->GetSurfaceExtent())))
         continue;
 
+      // Without colour writes the view doesn't matter, so keep the one
+      // bound last rather than ending the render pass for the other
+      bool rtSrgb = srgb || (i == 0 && m_srgbBlendKey);
+
+      if (!m_state.renderStates[ColorWriteIndex(i)])
+        rtSrgb = m_rtSrgbViews & (1u << i);
+
+      m_rtSrgbViews = rtSrgb ? (m_rtSrgbViews | (1u << i)) : (m_rtSrgbViews & ~(1u << i));
+
       attachments.color[i] = {
-        m_state.renderTargets[i]->GetRenderTargetView(srgb),
+        m_state.renderTargets[i]->GetRenderTargetView(rtSrgb),
         m_state.renderTargets[i]->GetRenderTargetLayout() };
     }
+
+    // Shaders that blend in gamma space read the sRGB view of target 0
+    Rc<DxvkImageView> fetchView;
+
+    if (attachments.color[0].view != nullptr
+     && (attachments.color[0].view->info().usage & VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT))
+      fetchView = m_state.renderTargets[0]->GetRenderTargetView(true);
 
     if (m_state.depthStencil != nullptr && (depthUsed
      || (keep && m_activeHazardsDS == 0 && coversUsed(m_state.depthStencil->GetSurfaceExtent())))) {
@@ -6211,10 +6231,92 @@ namespace dxvk {
 
     // Create and bind the framebuffer object to the context
     EmitCs([
-      cAttachments = std::move(attachments)
+      cAttachments = std::move(attachments),
+      cFetchView   = std::move(fetchView)
     ] (DxvkContext* ctx) {
       ctx->bindRenderTargets(cAttachments);
+
+      if (cFetchView != nullptr)
+        ctx->bindResourceView(computeInputAttachmentSlotId(), cFetchView, nullptr);
     });
+  }
+
+
+  uint32_t D3D9DeviceEx::ComputeSrgbBlendKey() {
+    auto& state = m_state.renderStates;
+
+    if (state[D3DRS_SRGBWRITEENABLE] || !(m_boundRTs & 1u)
+     || !state[ColorWriteIndex(0)] || !UseProgrammablePS())
+      return 0;
+
+    // Further render targets keep switching views
+    for (uint32_t i : bit::BitMask(m_boundRTs & ~1u)) {
+      if (state[ColorWriteIndex(i)])
+        return 0;
+    }
+
+    const DxvkImageCreateInfo& imageInfo = m_state.renderTargets[0]->GetCommonTexture()->GetImage()->info();
+
+    if (!(imageInfo.usage & VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT))
+      return 0;
+
+    DxsoSrgbBlendKey key = { };
+    key.valid = 1;
+
+    if (state[D3DRS_ALPHABLENDENABLE]) {
+      // The shader's alpha would be the blended one
+      if (IsAlphaToCoverageEnabled())
+        return 0;
+
+      D3D9BlendState color, alpha;
+      color.Src = D3DBLEND(state[D3DRS_SRCBLEND]);
+      color.Dst = D3DBLEND(state[D3DRS_DESTBLEND]);
+      color.Op  = D3DBLENDOP(state[D3DRS_BLENDOP]);
+      FixupBlendState(color);
+
+      if (state[D3DRS_SEPARATEALPHABLENDENABLE]) {
+        alpha.Src = D3DBLEND(state[D3DRS_SRCBLENDALPHA]);
+        alpha.Dst = D3DBLEND(state[D3DRS_DESTBLENDALPHA]);
+        alpha.Op  = D3DBLENDOP(state[D3DRS_BLENDOPALPHA]);
+        FixupBlendState(alpha);
+      } else
+        alpha = color;
+
+      const bool alphaSwizzle = m_alphaSwizzleRTs & 1u;
+      bool supported = true;
+
+      // Same factors as BindBlendState; constants and saturate aren't done
+      auto factor = [&] (D3DBLEND Factor, bool IsAlpha) {
+        VkBlendFactor f = DecodeBlendFactor(Factor, IsAlpha);
+
+        if (alphaSwizzle && f == VK_BLEND_FACTOR_DST_ALPHA)
+          f = VK_BLEND_FACTOR_ONE;
+        else if (alphaSwizzle && f == VK_BLEND_FACTOR_ONE_MINUS_DST_ALPHA)
+          f = VK_BLEND_FACTOR_ZERO;
+
+        supported &= f <= VK_BLEND_FACTOR_ONE_MINUS_DST_ALPHA;
+        return uint32_t(f);
+      };
+
+      auto op = [&] (D3DBLENDOP Op) {
+        VkBlendOp o = DecodeBlendOp(Op);
+        supported &= o <= VK_BLEND_OP_MAX;
+        return uint32_t(o);
+      };
+
+      key.blend    = 1;
+      key.colorSrc = factor(color.Src, false);
+      key.colorDst = factor(color.Dst, false);
+      key.colorOp  = op(color.Op);
+      key.alphaSrc = factor(alpha.Src, true);
+      key.alphaDst = factor(alpha.Dst, true);
+      key.alphaOp  = op(alpha.Op);
+
+      if (!supported)
+        return 0;
+    }
+
+    return key.pack();
   }
 
 
@@ -6358,12 +6460,17 @@ namespace dxvk {
     EmitCs([
       cMode       = mode,
       cWriteMasks = extraWriteMasks,
-      cAlphaMasks = m_alphaSwizzleRTs
+      cAlphaMasks = m_alphaSwizzleRTs,
+      cSrgbBlend  = m_srgbBlendKey != 0
     ](DxvkContext* ctx) {
       for (uint32_t i = 0; i < 4; i++) {
         DxvkBlendMode mode = cMode;
         if (i != 0)
           mode.writeMask = cWriteMasks[i - 1];
+
+        // The shader blends target 0 itself
+        if (i == 0 && cSrgbBlend)
+          mode.enableBlending = VK_FALSE;
 
         const bool alphaSwizzle = cAlphaMasks & (1 << i);
 
@@ -6751,6 +6858,16 @@ namespace dxvk {
 
     UpdateFog();
 
+    if (m_d3d9Options.srgbFramebufferFetch) {
+      const uint32_t srgbBlendKey = ComputeSrgbBlendKey();
+
+      if (unlikely(srgbBlendKey != m_srgbBlendKey)) {
+        m_srgbBlendKey = srgbBlendKey;
+        m_flags.set(D3D9DeviceFlag::DirtyFramebuffer);
+        m_flags.set(D3D9DeviceFlag::DirtyBlendState);
+      }
+    }
+
     if (m_flags.test(D3D9DeviceFlag::DirtyFramebuffer))
       BindFramebuffer();
 
@@ -6852,6 +6969,23 @@ namespace dxvk {
       UpdateFixedFunctionPS();
     }
 
+    if (unlikely(m_srgbBlendKey != m_srgbBlendBoundKey)) {
+      const D3D9CommonShader* shader = GetCommonShader(m_state.pixelShader);
+
+      // Without a pixel shader the key is 0 and fixed function binds its own
+      if (shader != nullptr) {
+        EmitCs([
+          cShader = m_srgbBlendKey
+            ? shader->GetSrgbBlendShader(this, m_srgbBlendKey, GetPixelShaderPermutation())
+            : shader->GetShader(GetPixelShaderPermutation())
+        ] (DxvkContext* ctx) {
+          ctx->bindShader(VK_SHADER_STAGE_FRAGMENT_BIT, cShader);
+        });
+      }
+
+      m_srgbBlendBoundKey = m_srgbBlendKey;
+    }
+
     const uint32_t depthTextureMask = m_depthTextures & usedTextureMask;
     if (depthTextureMask != m_lastSamplerDepthMode)
       UpdateSamplerDepthModeSpecConstant(depthTextureMask);
@@ -6906,6 +7040,10 @@ namespace dxvk {
   void D3D9DeviceEx::BindShader(
   const D3D9CommonShader*                 pShaderModule,
         D3D9ShaderPermutation             Permutation) {
+    // The regular shader replaces a gamma-space blending variant
+    if constexpr (ShaderStage == DxsoProgramType::PixelShader)
+      m_srgbBlendBoundKey = 0;
+
     EmitCs([
       cShader = pShaderModule->GetShader(Permutation)
     ] (DxvkContext* ctx) {

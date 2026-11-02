@@ -3976,6 +3976,171 @@ void DxsoCompiler::emitControlFlowGenericLoop(
     }
   }
 
+  void DxsoCompiler::emitPsSrgbBlend() {
+    // Colour 0 goes to an sRGB view while D3D9 has sRGB writes off, so that
+    // the render pass doesn't have to switch to the linear view. Do what the
+    // linear view would: blend with the stored values as they are (gamma),
+    // then hand the hardware linear values that it encodes back to them.
+    const DxsoSrgbBlendKey key = DxsoSrgbBlendKey::unpack(m_moduleInfo.options.srgbBlendKey);
+
+    if (!key.valid)
+      return;
+
+    DxsoRegister color0;
+    color0.id = DxsoRegisterId{ DxsoRegisterType::ColorOut, 0 };
+    auto oC0 = this->emitGetOperandPtr(color0);
+
+    if (!oC0.id)
+      return;
+
+    uint32_t floatType = m_module.defFloatType(32);
+    uint32_t vec3Type  = m_module.defVectorType(floatType, 3);
+    uint32_t vec4Type  = m_module.defVectorType(floatType, 4);
+    uint32_t bvec3Type = m_module.defVectorType(m_module.defBoolType(), 3);
+
+    auto splat3 = [&] (float v) { return m_module.constvec3f32(v, v, v); };
+
+    auto encodeSrgb = [&] (uint32_t x) {
+      uint32_t lo = m_module.opFMul(vec3Type, x, splat3(12.92f));
+      uint32_t hi = m_module.opFSub(vec3Type,
+        m_module.opFMul(vec3Type, splat3(1.055f), m_module.opPow(vec3Type, x, splat3(1.0f / 2.4f))),
+        splat3(0.055f));
+      return m_module.opSelect(vec3Type,
+        m_module.opFOrdLessThanEqual(bvec3Type, x, splat3(0.0031308f)), lo, hi);
+    };
+
+    auto decodeSrgb = [&] (uint32_t x) {
+      uint32_t lo = m_module.opFDiv(vec3Type, x, splat3(12.92f));
+      uint32_t hi = m_module.opPow(vec3Type,
+        m_module.opFDiv(vec3Type, m_module.opFAdd(vec3Type, x, splat3(0.055f)), splat3(1.055f)),
+        splat3(2.4f));
+      return m_module.opSelect(vec3Type,
+        m_module.opFOrdLessThanEqual(bvec3Type, x, splat3(0.04045f)), lo, hi);
+    };
+
+    const std::array<uint32_t, 3> rgb = { 0, 1, 2 };
+    const uint32_t alphaIndex = 3;
+
+    // Fixed-point attachments clamp the shader output before blending
+    uint32_t src = m_module.opFClamp(vec4Type,
+      m_module.opLoad(vec4Type, oC0.id),
+      m_module.constvec4f32(0.0f, 0.0f, 0.0f, 0.0f),
+      m_module.constvec4f32(1.0f, 1.0f, 1.0f, 1.0f));
+
+    uint32_t resRgb   = m_module.opVectorShuffle(vec3Type, src, src, rgb.size(), rgb.data());
+    uint32_t resAlpha = m_module.opCompositeExtract(floatType, src, 1, &alphaIndex);
+
+    if (key.blend) {
+      m_module.enableCapability(spv::CapabilityInputAttachment);
+
+      // A multisampled render to single-sampled attachment is read as a
+      // single-sampled one, once per pixel: the Mali driver fails to create
+      // these pipelines with sample shading (VK_ERROR_INITIALIZATION_FAILED),
+      // so samples covered by the draw all blend with the same stored value
+      uint32_t imageType = m_module.defImageType(floatType,
+        spv::DimSubpassData, 0, 0, 0, 2, spv::ImageFormatUnknown);
+
+      uint32_t imageVar = m_module.newVar(
+        m_module.defPointerType(imageType, spv::StorageClassUniformConstant),
+        spv::StorageClassUniformConstant);
+
+      const uint32_t bindingId = computeInputAttachmentSlotId();
+
+      m_module.setDebugName(imageVar, "fb_color0");
+      m_module.decorateDescriptorSet(imageVar, 0);
+      m_module.decorateBinding(imageVar, bindingId);
+      m_module.decorateInputAttachmentIndex(imageVar, 0);
+
+      DxvkResourceSlot resource;
+      resource.slot   = bindingId;
+      resource.type   = VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT;
+      resource.view   = VK_IMAGE_VIEW_TYPE_2D;
+      resource.access = VK_ACCESS_INPUT_ATTACHMENT_READ_BIT;
+      m_resourceSlots.push_back(resource);
+
+      uint32_t intType = m_module.defIntType(32, 1);
+      std::array<uint32_t, 2> zero = { m_module.consti32(0), m_module.consti32(0) };
+
+      SpirvImageOperands operands;
+
+      uint32_t dst = m_module.opImageRead(vec4Type,
+        m_module.opLoad(imageType, imageVar),
+        m_module.constComposite(m_module.defVectorType(intType, 2), zero.size(), zero.data()),
+        operands);
+
+      uint32_t srcRgb   = resRgb;
+      uint32_t srcAlpha = resAlpha;
+      uint32_t dstRgb   = encodeSrgb(m_module.opVectorShuffle(vec3Type, dst, dst, rgb.size(), rgb.data()));
+      uint32_t dstAlpha = m_module.opCompositeExtract(floatType, dst, 1, &alphaIndex);
+
+      auto splatAlpha = [&] (uint32_t a) {
+        std::array<uint32_t, 3> ids = { a, a, a };
+        return m_module.opCompositeConstruct(vec3Type, ids.size(), ids.data());
+      };
+
+      // Blend factor for the colour channels (vec3) or alpha (float)
+      auto factor = [&] (uint32_t f, bool alpha) {
+        uint32_t type = alpha ? floatType : vec3Type;
+        uint32_t one  = alpha ? m_module.constf32(1.0f) : splat3(1.0f);
+        uint32_t sc   = alpha ? srcAlpha : srcRgb;
+        uint32_t dc   = alpha ? dstAlpha : dstRgb;
+        uint32_t sa   = alpha ? srcAlpha : splatAlpha(srcAlpha);
+        uint32_t da   = alpha ? dstAlpha : splatAlpha(dstAlpha);
+
+        switch (VkBlendFactor(f)) {
+          case VK_BLEND_FACTOR_ZERO:                return alpha ? m_module.constf32(0.0f) : splat3(0.0f);
+          case VK_BLEND_FACTOR_SRC_COLOR:           return sc;
+          case VK_BLEND_FACTOR_ONE_MINUS_SRC_COLOR: return m_module.opFSub(type, one, sc);
+          case VK_BLEND_FACTOR_DST_COLOR:           return dc;
+          case VK_BLEND_FACTOR_ONE_MINUS_DST_COLOR: return m_module.opFSub(type, one, dc);
+          case VK_BLEND_FACTOR_SRC_ALPHA:           return sa;
+          case VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA: return m_module.opFSub(type, one, sa);
+          case VK_BLEND_FACTOR_DST_ALPHA:           return da;
+          case VK_BLEND_FACTOR_ONE_MINUS_DST_ALPHA: return m_module.opFSub(type, one, da);
+          default:
+          case VK_BLEND_FACTOR_ONE:                 return one;
+        }
+      };
+
+      auto blend = [&] (uint32_t s, uint32_t d, uint32_t fs, uint32_t fd, uint32_t op, bool alpha) {
+        uint32_t type = alpha ? floatType : vec3Type;
+
+        switch (VkBlendOp(op)) {
+          case VK_BLEND_OP_MIN: return m_module.opFMin(type, s, d);
+          case VK_BLEND_OP_MAX: return m_module.opFMax(type, s, d);
+          default: break;
+        }
+
+        s = m_module.opFMul(type, s, factor(fs, alpha));
+        d = m_module.opFMul(type, d, factor(fd, alpha));
+
+        switch (VkBlendOp(op)) {
+          case VK_BLEND_OP_SUBTRACT:         return m_module.opFSub(type, s, d);
+          case VK_BLEND_OP_REVERSE_SUBTRACT: return m_module.opFSub(type, d, s);
+          default:
+          case VK_BLEND_OP_ADD:              return m_module.opFAdd(type, s, d);
+        }
+      };
+
+      resRgb   = blend(srcRgb,   dstRgb,   key.colorSrc, key.colorDst, key.colorOp, false);
+      resAlpha = blend(srcAlpha, dstAlpha, key.alphaSrc, key.alphaDst, key.alphaOp, true);
+
+      resRgb   = m_module.opFClamp(vec3Type, resRgb, splat3(0.0f), splat3(1.0f));
+      resAlpha = m_module.opFClamp(floatType, resAlpha, m_module.constf32(0.0f), m_module.constf32(1.0f));
+    }
+
+    std::array<uint32_t, 4> result;
+    uint32_t linearRgb = decodeSrgb(resRgb);
+
+    for (uint32_t i = 0; i < 3; i++)
+      result[i] = m_module.opCompositeExtract(floatType, linearRgb, 1, &i);
+
+    result[3] = resAlpha;
+
+    m_module.opStore(oC0.id, m_module.opCompositeConstruct(vec4Type, result.size(), result.data()));
+  }
+
+
   void DxsoCompiler::emitOutputDepthClamp() {
     // HACK: Some drivers do not clamp FragDepth to [minDepth..maxDepth]
     // before writing to the depth attachment, but we do not have acccess
@@ -4090,6 +4255,7 @@ void DxsoCompiler::emitControlFlowGenericLoop(
     // everything has already gone to the right place!
 
     this->emitPsProcessing();
+    this->emitPsSrgbBlend();
     this->emitOutputDepthClamp();
     this->emitFunctionEnd();
   }

@@ -876,6 +876,8 @@ namespace dxvk {
 
     void PrepareDraw(D3DPRIMITIVETYPE PrimitiveType);
 
+    uint32_t ComputeSrgbBlendKey();
+
     template <DxsoProgramType ShaderStage>
     void BindShader(
       const D3D9CommonShader*                 pShaderModule,
@@ -932,6 +934,8 @@ namespace dxvk {
 
     const D3D9ConstantLayout& GetVertexConstantLayout() { return m_vsLayout; }
     const D3D9ConstantLayout& GetPixelConstantLayout()  { return m_psLayout; }
+
+    const DxsoOptions& GetDxsoOptions() const { return m_dxsoOptions; }
 
     HRESULT ResetState(D3DPRESENT_PARAMETERS* pPresentationParameters);
 
@@ -1287,6 +1291,14 @@ namespace dxvk {
     uint32_t                        m_activeHazardsRT        = 0;
     uint32_t                        m_activeHazardsDS        = 0;
     uint32_t                        m_alphaSwizzleRTs        = 0;
+
+    // Gamma-space blending of render target 0 (DxsoSrgbBlendKey), and
+    // the variant bound as pixel shader, 0 for the regular shader
+    uint32_t                        m_srgbBlendKey           = 0;
+    uint32_t                        m_srgbBlendBoundKey      = 0;
+
+    // Render targets last bound through their sRGB view
+    uint32_t                        m_rtSrgbViews            = 0;
     uint32_t                        m_activeTextures         = 0;
     uint32_t                        m_activeTexturesToUpload = 0;
     uint32_t                        m_activeTexturesToGen    = 0;

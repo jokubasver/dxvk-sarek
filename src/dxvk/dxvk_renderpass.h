@@ -37,6 +37,9 @@ namespace dxvk {
     /// Rasterization samples of a multisampled render to single-sampled
     /// pass over single-sampled attachments, 1 for a regular pass
     VkSampleCountFlagBits renderSampleCount = VK_SAMPLE_COUNT_1_BIT;
+    /// Colour attachments that are also input attachments of the subpass,
+    /// read in rasterization order (framebuffer fetch). Only bit 0 is used.
+    uint32_t              colorInputMask = 0;
     DxvkAttachmentFormat  depth;
     DxvkAttachmentFormat  color[MaxNumRenderTargets];
     

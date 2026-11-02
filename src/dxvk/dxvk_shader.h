@@ -45,6 +45,7 @@ namespace dxvk {
     HasTransformFeedback,
     ExportsStencilRef,
     ExportsViewportIndexLayerFromVertexStage,
+    ReadsInputAttachment,
   };
 
   using DxvkShaderFlags = Flags<DxvkShaderFlag>;

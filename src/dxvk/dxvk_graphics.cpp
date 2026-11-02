@@ -410,6 +410,16 @@ namespace dxvk {
     // Render pass format and image layouts
     DxvkRenderPassFormat passFormat = renderPass->format();
 
+    // A shader that reads the colour attachment needs a pass that has
+    // it as input attachment
+    const bool readsInput = m_shaders.fs != nullptr
+      && m_shaders.fs->flags().test(DxvkShaderFlag::ReadsInputAttachment);
+
+    if (readsInput && !(passFormat.colorInputMask & 1)) {
+      Logger::err("DxvkGraphicsPipeline: Framebuffer fetch shader in a pass without input attachment");
+      return VK_NULL_HANDLE;
+    }
+
     // Set up dynamic states as needed
     std::array<VkDynamicState, 6> dynamicStates;
     uint32_t                      dynamicStateCount = 0;
@@ -659,7 +669,7 @@ namespace dxvk {
     VkPipelineColorBlendStateCreateInfo cbInfo;
     cbInfo.sType                  = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
     cbInfo.pNext                  = nullptr;
-    cbInfo.flags                  = 0;
+    cbInfo.flags                  = readsInput ? VK_PIPELINE_COLOR_BLEND_STATE_CREATE_RASTERIZATION_ORDER_ATTACHMENT_ACCESS_BIT_EXT : 0;
     cbInfo.logicOpEnable          = state.om.enableLogicOp();
     cbInfo.logicOp                = state.om.logicOp();
     cbInfo.attachmentCount        = DxvkLimits::MaxNumRenderTargets;
@@ -711,9 +721,11 @@ namespace dxvk {
       t0 = dxvk::high_resolution_clock::now();
 
     VkPipeline pipeline = VK_NULL_HANDLE;
-    if (m_vkd->vkCreateGraphicsPipelines(m_vkd->device(),
-          m_pipeMgr->m_cache->handle(), 1, &info, nullptr, &pipeline) != VK_SUCCESS) {
-      Logger::err("DxvkGraphicsPipeline: Failed to compile pipeline");
+    VkResult vr = m_vkd->vkCreateGraphicsPipelines(m_vkd->device(),
+          m_pipeMgr->m_cache->handle(), 1, &info, nullptr, &pipeline);
+    if (vr != VK_SUCCESS) {
+      Logger::err(str::format("DxvkGraphicsPipeline: Failed to compile pipeline: ", vr,
+        ", pass input mask ", passFormat.colorInputMask, ", render samples ", uint32_t(passFormat.renderSampleCount)));
       this->logPipelineState(LogLevel::Error, state);
       return VK_NULL_HANDLE;
     }
@@ -897,6 +909,10 @@ namespace dxvk {
     const DxvkGraphicsPipelineStateInfo& state,
     const DxvkRenderPassFormat&          format) const {
     if (m_pipeMgr->m_stateCache == nullptr)
+      return;
+
+    // Generated shader variants have no key and can't be looked up again
+    if (m_shaders.fs != nullptr && m_shaders.fs->getShaderKey().eq(DxvkShaderKey()))
       return;
 
     DxvkStateCacheKey key;

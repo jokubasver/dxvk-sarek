@@ -129,6 +129,10 @@ namespace dxvk {
         format.renderSampleCount = renderTargets.color[i].view->imageInfo().renderSampleCount;
         format.color[i].format = renderTargets.color[i].view->info().format;
         format.color[i].layout = renderTargets.color[i].layout;
+
+        if (i == 0 && renderTargets.color[i].layout == VK_IMAGE_LAYOUT_GENERAL
+         && (renderTargets.color[i].view->info().usage & VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT))
+          format.colorInputMask |= 1u << i;
       }
     }
 

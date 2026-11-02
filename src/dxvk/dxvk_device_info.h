@@ -46,6 +46,7 @@ namespace dxvk {
     VkPhysicalDeviceMemoryPriorityFeaturesEXT                 extMemoryPriority;
     VkPhysicalDeviceMultisampledRenderToSingleSampledFeaturesEXT extMultisampledRenderToSingleSampled;
     VkPhysicalDeviceNonSeamlessCubeMapFeaturesEXT             extNonSeamlessCubeMap;
+    VkPhysicalDeviceRasterizationOrderAttachmentAccessFeaturesEXT extRasterizationOrderAttachmentAccess;
     VkPhysicalDeviceRobustness2FeaturesEXT                    extRobustness2;
     VkPhysicalDeviceShaderDemoteToHelperInvocationFeaturesEXT extShaderDemoteToHelperInvocation;
     VkPhysicalDeviceTextureCompressionASTCHDRFeaturesEXT      extTextureCompressionAstcHdr;

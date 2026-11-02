@@ -7,7 +7,8 @@ namespace dxvk {
   : m_vkd(vkd) {
     constexpr uint32_t MaxSets = 2048;
 
-    std::array<VkDescriptorPoolSize, 9> pools = {{
+    std::array<VkDescriptorPoolSize, 10> pools = {{
+      { VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT,       MaxSets / 8 },
       { VK_DESCRIPTOR_TYPE_SAMPLER,                MaxSets * 2 },
       { VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,          MaxSets * 3 },
       { VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,          MaxSets / 8 },
