@@ -214,11 +214,26 @@ namespace dxvk {
     }
 
     /**
+     * \brief Sets an event from the host once the command buffer is done
+     *
+     * Unlike vkCmdSetEvent this can be queued inside a render pass.
+     * \param [in] event The event, reset by the caller
+     */
+    void setEventOnCompletion(VkEvent event) {
+      m_completionEvents.push_back(event);
+    }
+
+    /**
      * \brief Notifies resources and signals
      */
     void notifyObjects() {
       m_resources.notify();
       m_signalTracker.notify();
+
+      for (VkEvent event : m_completionEvents)
+        m_vkd->vkSetEvent(m_vkd->device(), event);
+
+      m_completionEvents.clear();
     }
     
     /**
@@ -396,6 +411,20 @@ namespace dxvk {
     }
     
     
+    void cmdSetDynamicPipelineState(
+            VkCullModeFlags         cullMode,
+            VkFrontFace             frontFace,
+            VkBool32                depthTest,
+            VkBool32                depthWrite,
+            VkCompareOp             depthCompareOp,
+            uint32_t                changeMask) {
+      if (changeMask & 0x01) m_vkd->vkCmdSetCullModeEXT(m_execBuffer, cullMode);
+      if (changeMask & 0x02) m_vkd->vkCmdSetFrontFaceEXT(m_execBuffer, frontFace);
+      if (changeMask & 0x04) m_vkd->vkCmdSetDepthTestEnableEXT(m_execBuffer, depthTest);
+      if (changeMask & 0x08) m_vkd->vkCmdSetDepthWriteEnableEXT(m_execBuffer, depthWrite);
+      if (changeMask & 0x10) m_vkd->vkCmdSetDepthCompareOpEXT(m_execBuffer, depthCompareOp);
+    }
+
     void cmdBindVertexBuffers2(
             uint32_t                firstBinding,
             uint32_t                bindingCount,
@@ -841,6 +870,8 @@ namespace dxvk {
 
     std::vector<VkCommandBuffer> m_passBuffers;
     uint32_t            m_passBuffersUsed = 0;
+
+    std::vector<VkEvent> m_completionEvents;
 
     DxvkCmdBufferFlags  m_cmdBuffersUsed;
     DxvkLifetimeTracker m_resources;

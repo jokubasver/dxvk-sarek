@@ -14,6 +14,12 @@ namespace dxvk {
     tilerMode             = config.getOption<Tristate>("dxvk.tilerMode",              Tristate::Auto);
     fragmentBarriers      = config.getOption<Tristate>("dxvk.fragmentBarriers",       Tristate::Auto);
     deferRenderPasses     = config.getOption<Tristate>("dxvk.deferRenderPasses",      Tristate::Auto);
+    descriptorSetCache    = config.getOption<Tristate>("dxvk.descriptorSetCache",     Tristate::Auto);
+    relaxedBufferRobustness = config.getOption<Tristate>("dxvk.relaxedBufferRobustness", Tristate::Auto);
+    eventQueryAtSubmit    = config.getOption<Tristate>("dxvk.eventQueryAtSubmit",     Tristate::Auto);
+    presentLatestReady    = config.getOption<Tristate>("dxvk.presentLatestReady",     Tristate::Auto);
+    dynamicPipelineState  = config.getOption<Tristate>("dxvk.dynamicPipelineState",   Tristate::Auto);
+    disableAlphaToCoverage = config.getOption<bool>("dxvk.disableAlphaToCoverage",    false);
     pipelineCache         = config.getOption<Tristate>("dxvk.pipelineCache",          Tristate::Auto);
     zeroMappedMemory      = config.getOption<bool>("dxvk.zeroMappedMemory", false);
     lowerSinCos           = config.getOption<Tristate>("dxvk.lowerSinCos",            Tristate::Auto);

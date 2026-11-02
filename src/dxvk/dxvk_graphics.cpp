@@ -421,11 +421,21 @@ namespace dxvk {
     }
 
     // Set up dynamic states as needed
-    std::array<VkDynamicState, 6> dynamicStates;
-    uint32_t                      dynamicStateCount = 0;
+    std::array<VkDynamicState, 12> dynamicStates;
+    uint32_t                       dynamicStateCount = 0;
 
     dynamicStates[dynamicStateCount++] = VK_DYNAMIC_STATE_VIEWPORT;
     dynamicStates[dynamicStateCount++] = VK_DYNAMIC_STATE_SCISSOR;
+
+    // The state key has these normalized, see DxvkContext::updateGraphicsPipelineState
+    if (m_pipeMgr->m_device->perfHints().preferDynamicPipelineState) {
+      dynamicStates[dynamicStateCount++] = VK_DYNAMIC_STATE_CULL_MODE_EXT;
+      dynamicStates[dynamicStateCount++] = VK_DYNAMIC_STATE_FRONT_FACE_EXT;
+      dynamicStates[dynamicStateCount++] = VK_DYNAMIC_STATE_DEPTH_TEST_ENABLE_EXT;
+      dynamicStates[dynamicStateCount++] = VK_DYNAMIC_STATE_DEPTH_WRITE_ENABLE_EXT;
+      dynamicStates[dynamicStateCount++] = VK_DYNAMIC_STATE_DEPTH_COMPARE_OP_EXT;
+      dynamicStates[dynamicStateCount++] = VK_DYNAMIC_STATE_VERTEX_INPUT_BINDING_STRIDE_EXT;
+    }
 
     if (state.useDynamicDepthBias())
       dynamicStates[dynamicStateCount++] = VK_DYNAMIC_STATE_DEPTH_BIAS;
@@ -649,7 +659,8 @@ namespace dxvk {
     msInfo.sampleShadingEnable    = m_common.msSampleShadingEnable;
     msInfo.minSampleShading       = m_common.msSampleShadingFactor;
     msInfo.pSampleMask            = &sampleMask;
-    msInfo.alphaToCoverageEnable  = state.ms.enableAlphaToCoverage();
+    msInfo.alphaToCoverageEnable  = state.ms.enableAlphaToCoverage()
+      && !m_pipeMgr->m_device->config().disableAlphaToCoverage;
     msInfo.alphaToOneEnable       = VK_FALSE;
 
     VkPipelineDepthStencilStateCreateInfo dsInfo;
@@ -710,6 +721,20 @@ namespace dxvk {
       info.flags |= VK_PIPELINE_CREATE_ALLOW_DERIVATIVES_BIT;
     info.basePipelineHandle       = base;
     info.basePipelineIndex        = -1;
+
+    // Storage buffer reads (prop instance rows) are in range by construction.
+    // Uniform buffers keep robustness: D3D9 constants past the bound range,
+    // which only grows to what the game has set, must read as zero.
+    VkPipelineRobustnessCreateInfoEXT robustInfo;
+    robustInfo.sType          = VK_STRUCTURE_TYPE_PIPELINE_ROBUSTNESS_CREATE_INFO_EXT;
+    robustInfo.pNext          = nullptr;
+    robustInfo.storageBuffers = VK_PIPELINE_ROBUSTNESS_BUFFER_BEHAVIOR_DISABLED_EXT;
+    robustInfo.uniformBuffers = VK_PIPELINE_ROBUSTNESS_BUFFER_BEHAVIOR_DEVICE_DEFAULT_EXT;
+    robustInfo.vertexInputs   = VK_PIPELINE_ROBUSTNESS_BUFFER_BEHAVIOR_DEVICE_DEFAULT_EXT;
+    robustInfo.images         = VK_PIPELINE_ROBUSTNESS_IMAGE_BEHAVIOR_DEVICE_DEFAULT_EXT;
+
+    if (m_pipeMgr->m_device->perfHints().preferRelaxedBufferRobustness)
+      robustInfo.pNext = std::exchange(info.pNext, &robustInfo);
 
     if (tsInfo.patchControlPoints == 0)
       info.pTessellationState = nullptr;

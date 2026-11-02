@@ -283,6 +283,8 @@ namespace dxvk {
     DxvkExt extCustomBorderColor              = { VK_EXT_CUSTOM_BORDER_COLOR_EXTENSION_NAME,                DxvkExtMode::Optional };
     DxvkExt extDepthClipEnable                = { VK_EXT_DEPTH_CLIP_ENABLE_EXTENSION_NAME,                  DxvkExtMode::Optional };
     DxvkExt extExtendedDynamicState           = { VK_EXT_EXTENDED_DYNAMIC_STATE_EXTENSION_NAME,             DxvkExtMode::Optional };
+    DxvkExt extPipelineRobustness             = { VK_EXT_PIPELINE_ROBUSTNESS_EXTENSION_NAME,                DxvkExtMode::Optional };
+    DxvkExt extPresentModeFifoLatestReady     = { VK_EXT_PRESENT_MODE_FIFO_LATEST_READY_EXTENSION_NAME,     DxvkExtMode::Optional };
     DxvkExt extExternalMemoryHost             = { VK_EXT_EXTERNAL_MEMORY_HOST_EXTENSION_NAME,               DxvkExtMode::Optional };
     DxvkExt extFullScreenExclusive            = { VK_EXT_FULL_SCREEN_EXCLUSIVE_EXTENSION_NAME,              DxvkExtMode::Optional };
     DxvkExt extHostQueryReset                 = { VK_EXT_HOST_QUERY_RESET_EXTENSION_NAME,                   DxvkExtMode::Optional };

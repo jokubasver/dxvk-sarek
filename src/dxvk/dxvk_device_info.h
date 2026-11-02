@@ -42,6 +42,8 @@ namespace dxvk {
     VkPhysicalDeviceCustomBorderColorFeaturesEXT              extCustomBorderColor;
     VkPhysicalDeviceDepthClipEnableFeaturesEXT                extDepthClipEnable;
     VkPhysicalDeviceExtendedDynamicStateFeaturesEXT           extExtendedDynamicState;
+    VkPhysicalDevicePipelineRobustnessFeaturesEXT             extPipelineRobustness;
+    VkPhysicalDevicePresentModeFifoLatestReadyFeaturesEXT     extPresentModeFifoLatestReady;
     VkPhysicalDeviceHostQueryResetFeaturesEXT                 extHostQueryReset;
     VkPhysicalDeviceMemoryPriorityFeaturesEXT                 extMemoryPriority;
     VkPhysicalDeviceMultisampledRenderToSingleSampledFeaturesEXT extMultisampledRenderToSingleSampled;

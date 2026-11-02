@@ -95,7 +95,8 @@ namespace dxvk::vk {
       sync.acquire, VK_NULL_HANDLE, &m_imageIndex);
 
     bool vsync = m_info.presentMode == VK_PRESENT_MODE_FIFO_KHR
-              || m_info.presentMode == VK_PRESENT_MODE_FIFO_RELAXED_KHR;
+              || m_info.presentMode == VK_PRESENT_MODE_FIFO_RELAXED_KHR
+              || m_info.presentMode == VK_PRESENT_MODE_FIFO_LATEST_READY_EXT;
 
     m_fpsLimiter.delay(vsync);
     return status;
@@ -135,6 +136,13 @@ namespace dxvk::vk {
 
     if ((status = getSupportedPresentModes(modes, desc)) != VK_SUCCESS)
       return status;
+
+    std::string modeList;
+
+    for (auto mode : modes)
+      modeList += str::format(" ", mode);
+
+    Logger::info(str::format("Presenter: Supported present modes:", modeList));
 
     // Select actual swap chain properties and create swap chain
     m_info.format       = pickFormat(formats.size(), formats.data(), desc.numFormats, desc.formats);

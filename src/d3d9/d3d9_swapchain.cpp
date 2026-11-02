@@ -1241,6 +1241,15 @@ namespace dxvk {
     uint32_t n = 0;
 
     if (Vsync) {
+      // Like FIFO, but at each vblank shows the newest finished frame
+      // instead of the oldest queued one, so queued frames don't add latency
+      Rc<DxvkDevice> device = m_parent->GetDXVKDevice();
+      bool latestReady = device->features().extPresentModeFifoLatestReady.presentModeFifoLatestReady;
+      applyTristate(latestReady, device->config().presentLatestReady);
+
+      if (latestReady && device->features().extPresentModeFifoLatestReady.presentModeFifoLatestReady)
+        pDstModes[n++] = VK_PRESENT_MODE_FIFO_LATEST_READY_EXT;
+
       if (m_parent->GetOptions()->tearFree == Tristate::False)
         pDstModes[n++] = VK_PRESENT_MODE_FIFO_RELAXED_KHR;
       pDstModes[n++] = VK_PRESENT_MODE_FIFO_KHR;

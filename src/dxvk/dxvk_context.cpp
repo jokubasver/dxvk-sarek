@@ -38,6 +38,20 @@ namespace dxvk {
       m_gfxBarriers.setDeferredStages(m_deferStageMask);
     }
 
+    // Most draws bind the same textures and buffers as an earlier one,
+    // and allocating and writing a set costs the driver CPU time
+    m_descSetCacheEnabled = true;
+    applyTristate(m_descSetCacheEnabled, m_device->config().descriptorSetCache);
+
+    if (m_descSetCacheEnabled)
+      m_descSetCache.resize(512);
+
+    // vkCmdSetEvent ends the render pass, which a tiler stores and reloads
+    m_eventAtCompletion = m_device->perfHints().preferPartialRenderArea;
+    applyTristate(m_eventAtCompletion, m_device->config().eventQueryAtSubmit);
+
+    m_dynamicPipelineState = m_device->perfHints().preferDynamicPipelineState;
+
     // Init framebuffer info with default render pass in case
     // the app does not explicitly bind any render targets
     m_state.om.framebufferInfo = makeFramebufferInfo(m_state.om.renderTargets);
@@ -53,6 +67,9 @@ namespace dxvk {
     m_cmd = cmdList;
     m_cmd->beginRecording();
 
+    // Cached sets may name objects only earlier command lists kept alive
+    this->clearDescriptorSetCache();
+
     // Mark all resources as untracked
     m_vbTracked.clear();
     m_rcTracked.clear();
@@ -60,6 +77,7 @@ namespace dxvk {
     // A fresh command buffer has nothing bound, so the handles tracked
     // for redundant-bind elimination no longer describe what is recorded.
     m_gpActivePipeline = VK_NULL_HANDLE;
+    m_dynState.valid = false;
     m_cpActivePipeline = VK_NULL_HANDLE;
 
     // The current state of the internal command buffer is
@@ -2577,12 +2595,17 @@ namespace dxvk {
 
 
   void DxvkContext::signalGpuEvent(const Rc<DxvkGpuEvent>& event) {
-    this->spillRenderPass(true);
-
     DxvkGpuEventHandle handle = m_common->eventPool().allocEvent();
 
-    m_cmd->cmdSetEvent(handle.event,
-      VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
+    if (m_eventAtCompletion) {
+      // Signals later than vkCmdSetEvent would, but keeps the pass going
+      m_cmd->setEventOnCompletion(handle.event);
+    } else {
+      this->spillRenderPass(true);
+
+      m_cmd->cmdSetEvent(handle.event,
+        VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
+    }
 
     m_cmd->trackGpuEvent(event->reset(handle));
     m_cmd->trackResource<DxvkAccess::None>(event);
@@ -4002,6 +4025,7 @@ namespace dxvk {
     // Draws inside a render pass, where the elimination pays off, are
     // untouched.
     m_gpActivePipeline = VK_NULL_HANDLE;
+    m_dynState.valid = false;
     m_cpActivePipeline = VK_NULL_HANDLE;
 
     if (m_flags.test(DxvkContextFlag::GpRenderPassBound)) {
@@ -4406,6 +4430,7 @@ namespace dxvk {
       DxvkContextFlag::GpDirtyDepthBounds);
 
     m_gpActivePipeline = VK_NULL_HANDLE;
+    m_dynState.valid = false;
   }
 
 
@@ -4470,12 +4495,34 @@ namespace dxvk {
       ? DxvkContextFlag::GpDynamicStencilRef
       : DxvkContextFlag::GpDirtyStencilRef);
 
-    // Retrieve and bind actual Vulkan pipeline handle
-    VkPipeline pipeline = m_state.gp.pipeline->getPipelineHandle(
-      m_state.gp.state, m_state.om.framebufferInfo.renderPass());
+    // Retrieve and bind actual Vulkan pipeline handle. With dynamic
+    // pipeline state, the states set at draw time are left out of the key.
+    VkPipeline pipeline;
+
+    if (m_dynamicPipelineState) {
+      DxvkGraphicsPipelineStateInfo key = m_state.gp.state;
+      const DxvkRsInfo& rs = m_state.gp.state.rs;
+      const DxvkDsInfo& ds = m_state.gp.state.ds;
+
+      key.rs = DxvkRsInfo(rs.depthClipEnable(), rs.depthBiasEnable(), rs.polygonMode(),
+        VK_CULL_MODE_NONE, VK_FRONT_FACE_COUNTER_CLOCKWISE,
+        rs.viewportCount(), rs.sampleCount(), rs.conservativeMode());
+      key.ds = DxvkDsInfo(VK_FALSE, VK_FALSE, ds.enableDepthBoundsTest(),
+        ds.enableStencilTest(), VK_COMPARE_OP_ALWAYS);
+
+      for (uint32_t i = 0; i < key.il.bindingCount(); i++)
+        key.ilBindings[i].setStride(0);
+
+      pipeline = m_state.gp.pipeline->getPipelineHandle(
+        key, m_state.om.framebufferInfo.renderPass());
+    } else {
+      pipeline = m_state.gp.pipeline->getPipelineHandle(
+        m_state.gp.state, m_state.om.framebufferInfo.renderPass());
+    }
 
     if (unlikely(!pipeline)) {
       m_gpActivePipeline = VK_NULL_HANDLE;
+      m_dynState.valid = false;
       return false;
     }
 
@@ -4491,8 +4538,45 @@ namespace dxvk {
         m_gpActivePipeline);
     }
 
+    if (m_dynamicPipelineState)
+      this->updateDynamicPipelineState();
+
     m_flags.clr(DxvkContextFlag::GpDirtyPipelineState);
     return true;
+  }
+
+
+  void DxvkContext::updateDynamicPipelineState() {
+    const DxvkRsInfo& rs = m_state.gp.state.rs;
+    const DxvkDsInfo& ds = m_state.gp.state.ds;
+
+    DxvkDynamicPipelineState next;
+    next.cullMode       = rs.cullMode();
+    next.frontFace      = rs.frontFace();
+    next.depthTest      = ds.enableDepthTest();
+    next.depthWrite     = ds.enableDepthWrite()
+      && !util::isDepthReadOnlyLayout(m_state.om.framebufferInfo.renderPass()->format().depth.layout);
+    next.depthCompareOp = ds.depthCompareOp();
+
+    // Pipelines with these states static (meta operations) leave them
+    // undefined, which every point clearing m_gpActivePipeline covers
+    uint32_t changeMask = m_dynState.valid ? 0u : 0x1fu;
+
+    if (m_dynState.valid) {
+      if (next.cullMode       != m_dynState.cullMode)       changeMask |= 0x01;
+      if (next.frontFace      != m_dynState.frontFace)      changeMask |= 0x02;
+      if (next.depthTest      != m_dynState.depthTest)      changeMask |= 0x04;
+      if (next.depthWrite     != m_dynState.depthWrite)     changeMask |= 0x08;
+      if (next.depthCompareOp != m_dynState.depthCompareOp) changeMask |= 0x10;
+    }
+
+    if (changeMask) {
+      m_cmd->cmdSetDynamicPipelineState(next.cullMode, next.frontFace,
+        next.depthTest, next.depthWrite, next.depthCompareOp, changeMask);
+    }
+
+    m_dynState = next;
+    m_dynState.valid = true;
   }
 
 
@@ -4525,6 +4609,11 @@ namespace dxvk {
   template<VkPipelineBindPoint BindPoint>
   void DxvkContext::updateShaderResources(const DxvkPipelineLayout* layout) {
     std::array<DxvkDescriptorInfo, MaxNumActiveBindings> descriptors;
+
+    // The set cache compares whole entries, including the bytes a
+    // texel buffer view or sampler-only descriptor leaves unused
+    if (m_descSetCacheEnabled)
+      std::memset(descriptors.data(), 0, layout->bindingCount() * sizeof(DxvkDescriptorInfo));
 
     // Assume that all bindings are active as a fast path
     DxvkBindingMask bindMask;
@@ -4680,10 +4769,7 @@ namespace dxvk {
     auto& set = BindPoint == VK_PIPELINE_BIND_POINT_GRAPHICS ? m_gpSet : m_cpSet;
 
     if (layout->bindingCount()) {
-      set = allocateDescriptorSet(layout->descriptorSetLayout());
-
-      m_cmd->updateDescriptorSetWithTemplate(set,
-        layout->descriptorTemplate(), descriptors.data());
+      set = lookupDescriptorSet(layout, descriptors.data());
     } else {
       set = VK_NULL_HANDLE;
     }
@@ -4974,10 +5060,12 @@ namespace dxvk {
     std::array<VkBuffer,     MaxNumVertexBindings> buffers;
     std::array<VkDeviceSize, MaxNumVertexBindings> offsets;
     std::array<VkDeviceSize, MaxNumVertexBindings> lengths;
+    std::array<VkDeviceSize, MaxNumVertexBindings> strides;
 
     // Set buffer handles and offsets for active bindings
     for (uint32_t i = 0; i < m_state.gp.state.il.bindingCount(); i++) {
       uint32_t binding = m_state.gp.state.ilBindings[i].binding();
+      strides[i] = m_state.vi.vertexStrides[binding];
 
       if (likely(m_state.vi.vertexBuffers[binding].defined())) {
         auto vbo = m_state.vi.vertexBuffers[binding].getDescriptor();
@@ -5003,7 +5091,8 @@ namespace dxvk {
     // pipeline, so this actually does the right thing
     if (m_features.test(DxvkContextFeature::ExtendedDynamicState)) {
       m_cmd->cmdBindVertexBuffers2(0, m_state.gp.state.il.bindingCount(),
-        buffers.data(), offsets.data(), lengths.data(), nullptr);
+        buffers.data(), offsets.data(), lengths.data(),
+        m_dynamicPipelineState ? strides.data() : nullptr);
     } else {
       m_cmd->cmdBindVertexBuffers(0, m_state.gp.state.il.bindingCount(),
         buffers.data(), offsets.data());
@@ -5553,19 +5642,66 @@ namespace dxvk {
 
   VkDescriptorSet DxvkContext::allocateDescriptorSet(
           VkDescriptorSetLayout     layout) {
-    if (m_descPool == nullptr)
+    if (m_descPool == nullptr) {
       m_descPool = m_device->createDescriptorPool();
+      this->clearDescriptorSetCache();
+    }
 
     VkDescriptorSet set = m_descPool->alloc(layout);
 
     if (set == VK_NULL_HANDLE) {
       m_cmd->trackDescriptorPool(std::move(m_descPool));
+      this->clearDescriptorSetCache();
 
       m_descPool = m_device->createDescriptorPool();
       set = m_descPool->alloc(layout);
     }
 
     return set;
+  }
+
+
+  VkDescriptorSet DxvkContext::lookupDescriptorSet(
+    const DxvkPipelineLayout*       layout,
+    const DxvkDescriptorInfo*       descriptors) {
+    VkDescriptorSetLayout setLayout = layout->descriptorSetLayout();
+    uint32_t count = layout->bindingCount();
+
+    if (!m_descSetCacheEnabled) {
+      VkDescriptorSet set = allocateDescriptorSet(setLayout);
+      m_cmd->updateDescriptorSetWithTemplate(set, layout->descriptorTemplate(), descriptors);
+      return set;
+    }
+
+    static_assert(sizeof(DxvkDescriptorInfo) % sizeof(size_t) == 0);
+    const size_t* words = reinterpret_cast<const size_t*>(descriptors);
+
+    DxvkHashState hash;
+    hash.add(size_t(setLayout));
+
+    for (size_t i = 0; i < count * sizeof(DxvkDescriptorInfo) / sizeof(size_t); i++)
+      hash.add(words[i]);
+
+    DxvkDescriptorSetCacheEntry& entry = m_descSetCache[size_t(hash) % m_descSetCache.size()];
+
+    if (entry.set && entry.layout == setLayout && entry.descriptors.size() == count
+     && !std::memcmp(entry.descriptors.data(), descriptors, count * sizeof(DxvkDescriptorInfo)))
+      return entry.set;
+
+    // May clear the cache when the pool runs full, the entry stays valid
+    VkDescriptorSet set = allocateDescriptorSet(setLayout);
+    m_cmd->updateDescriptorSetWithTemplate(set, layout->descriptorTemplate(), descriptors);
+
+    entry.layout = setLayout;
+    entry.set    = set;
+    entry.descriptors.assign(descriptors, descriptors + count);
+    return set;
+  }
+
+
+  void DxvkContext::clearDescriptorSetCache() {
+    for (auto& entry : m_descSetCache)
+      entry.set = VK_NULL_HANDLE;
   }
 
 

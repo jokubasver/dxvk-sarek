@@ -269,7 +269,7 @@ namespace dxvk {
           DxvkDeviceFeatures  enabledFeatures) {
     DxvkDeviceExtensions devExtensions;
 
-    std::array<DxvkExt*, 37> devExtensionList = {{
+    std::array<DxvkExt*, 39> devExtensionList = {{
       &devExtensions.amdMemoryOverallocationBehaviour,
       &devExtensions.amdShaderFragmentMask,
       &devExtensions.ext4444Formats,
@@ -277,6 +277,8 @@ namespace dxvk {
       &devExtensions.extCustomBorderColor,
       &devExtensions.extDepthClipEnable,
       &devExtensions.extExtendedDynamicState,
+      &devExtensions.extPipelineRobustness,
+      &devExtensions.extPresentModeFifoLatestReady,
       &devExtensions.extExternalMemoryHost,
       &devExtensions.extFullScreenExclusive,
       &devExtensions.extHostQueryReset,
@@ -356,6 +358,8 @@ namespace dxvk {
 
     // Enable additional device features if supported
     enabledFeatures.extExtendedDynamicState.extendedDynamicState = m_deviceFeatures.extExtendedDynamicState.extendedDynamicState;
+    enabledFeatures.extPipelineRobustness.pipelineRobustness = m_deviceFeatures.extPipelineRobustness.pipelineRobustness;
+    enabledFeatures.extPresentModeFifoLatestReady.presentModeFifoLatestReady = m_deviceFeatures.extPresentModeFifoLatestReady.presentModeFifoLatestReady;
 
     enabledFeatures.ext4444Formats.formatA4B4G4R4 = m_deviceFeatures.ext4444Formats.formatA4B4G4R4;
     enabledFeatures.ext4444Formats.formatA4R4G4B4 = m_deviceFeatures.ext4444Formats.formatA4R4G4B4;
@@ -407,6 +411,16 @@ namespace dxvk {
     if (devExtensions.extExtendedDynamicState) {
       enabledFeatures.extExtendedDynamicState.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_FEATURES_EXT;
       enabledFeatures.extExtendedDynamicState.pNext = std::exchange(enabledFeatures.core.pNext, &enabledFeatures.extExtendedDynamicState);
+    }
+
+    if (devExtensions.extPipelineRobustness) {
+      enabledFeatures.extPipelineRobustness.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PIPELINE_ROBUSTNESS_FEATURES_EXT;
+      enabledFeatures.extPipelineRobustness.pNext = std::exchange(enabledFeatures.core.pNext, &enabledFeatures.extPipelineRobustness);
+    }
+
+    if (devExtensions.extPresentModeFifoLatestReady) {
+      enabledFeatures.extPresentModeFifoLatestReady.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_MODE_FIFO_LATEST_READY_FEATURES_EXT;
+      enabledFeatures.extPresentModeFifoLatestReady.pNext = std::exchange(enabledFeatures.core.pNext, &enabledFeatures.extPresentModeFifoLatestReady);
     }
 
     if (devExtensions.extHostQueryReset) {
@@ -750,6 +764,16 @@ namespace dxvk {
     if (m_deviceExtensions.supports(VK_EXT_EXTENDED_DYNAMIC_STATE_EXTENSION_NAME)) {
       m_deviceFeatures.extExtendedDynamicState.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_FEATURES_EXT;
       m_deviceFeatures.extExtendedDynamicState.pNext = std::exchange(m_deviceFeatures.core.pNext, &m_deviceFeatures.extExtendedDynamicState);
+    }
+
+    if (m_deviceExtensions.supports(VK_EXT_PIPELINE_ROBUSTNESS_EXTENSION_NAME)) {
+      m_deviceFeatures.extPipelineRobustness.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PIPELINE_ROBUSTNESS_FEATURES_EXT;
+      m_deviceFeatures.extPipelineRobustness.pNext = std::exchange(m_deviceFeatures.core.pNext, &m_deviceFeatures.extPipelineRobustness);
+    }
+
+    if (m_deviceExtensions.supports(VK_EXT_PRESENT_MODE_FIFO_LATEST_READY_EXTENSION_NAME)) {
+      m_deviceFeatures.extPresentModeFifoLatestReady.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_MODE_FIFO_LATEST_READY_FEATURES_EXT;
+      m_deviceFeatures.extPresentModeFifoLatestReady.pNext = std::exchange(m_deviceFeatures.core.pNext, &m_deviceFeatures.extPresentModeFifoLatestReady);
     }
 
     if (m_deviceExtensions.supports(VK_EXT_HOST_QUERY_RESET_EXTENSION_NAME)) {

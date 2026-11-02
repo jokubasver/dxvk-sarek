@@ -43,6 +43,31 @@ namespace dxvk {
     /// contents won't be needed. Auto follows tilerMode.
     Tristate deferRenderPasses = Tristate::Auto;
 
+    /// Reuse a descriptor set already written with the same descriptors
+    /// instead of allocating and writing another. Auto = on.
+    Tristate descriptorSetCache = Tristate::Auto;
+
+    /// Storage buffer accesses skip the robustness bounds checks
+    /// (VK_EXT_pipeline_robustness). Uniform buffers and vertex input keep
+    /// them: D3D9 constants past the bound range must read zero. Auto = Arm.
+    Tristate relaxedBufferRobustness = Tristate::Auto;
+
+    /// D3D9 event queries complete with their command list instead of a
+    /// vkCmdSetEvent, which has to end the render pass. Auto = tiler.
+    Tristate eventQueryAtSubmit = Tristate::Auto;
+
+    /// Prefer VK_PRESENT_MODE_FIFO_LATEST_READY_EXT over FIFO when the
+    /// surface supports it. Auto = on.
+    Tristate presentLatestReady = Tristate::Auto;
+
+    /// Cull mode, front face, depth test, depth write, depth compare op and
+    /// vertex strides are dynamic state (VK_EXT_extended_dynamic_state),
+    /// so pipelines differing only in them are one. Auto = on if supported.
+    Tristate dynamicPipelineState = Tristate::Auto;
+
+    /// Measurement only: never enable alpha to coverage
+    bool disableAlphaToCoverage = false;
+
     /// Hand the driver a pipeline cache and keep it on disk beside
     /// the state cache, for drivers without a disk cache of their own
     Tristate pipelineCache = Tristate::Auto;

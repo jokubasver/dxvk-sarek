@@ -1083,6 +1083,33 @@ namespace dxvk {
     DxvkRenderPass*         m_passRenderPass = nullptr;
     DxvkRenderPassOps       m_passOps;
     bool                    m_passDiscardDepth = false;
+
+    // Descriptor sets written in this command list, by contents
+    struct DxvkDescriptorSetCacheEntry {
+      VkDescriptorSetLayout           layout = VK_NULL_HANDLE;
+      VkDescriptorSet                 set    = VK_NULL_HANDLE;
+      std::vector<DxvkDescriptorInfo> descriptors;
+    };
+
+    bool                    m_descSetCacheEnabled = false;
+    std::vector<DxvkDescriptorSetCacheEntry> m_descSetCache;
+
+    // D3D9 event queries set from the host, see dxvk.eventQueryAtSubmit
+    bool                    m_eventAtCompletion = false;
+
+    // Pipeline state set at draw time, see dxvk.dynamicPipelineState
+    struct DxvkDynamicPipelineState {
+      VkCullModeFlags       cullMode       = VK_CULL_MODE_NONE;
+      VkFrontFace           frontFace      = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+      VkBool32              depthTest      = VK_FALSE;
+      VkBool32              depthWrite     = VK_FALSE;
+      VkCompareOp           depthCompareOp = VK_COMPARE_OP_ALWAYS;
+      bool                  valid          = false;
+    };
+
+    bool                    m_dynamicPipelineState = false;
+    DxvkDynamicPipelineState m_dynState;
+
     DxvkBarrierSet          m_sdmaAcquires;
     DxvkBarrierSet          m_sdmaBarriers;
     DxvkBarrierSet          m_initBarriers;
@@ -1359,6 +1386,14 @@ namespace dxvk {
 
     VkDescriptorSet allocateDescriptorSet(
             VkDescriptorSetLayout     layout);
+
+    VkDescriptorSet lookupDescriptorSet(
+      const DxvkPipelineLayout*       layout,
+      const DxvkDescriptorInfo*       descriptors);
+
+    void clearDescriptorSetCache();
+
+    void updateDynamicPipelineState();
 
     void trackDrawBuffer();
 

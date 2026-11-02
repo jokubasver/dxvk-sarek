@@ -322,6 +322,17 @@ namespace dxvk {
     bool deferRenderPasses = tilerMode;
     applyTristate(deferRenderPasses, m_options.deferRenderPasses);
     hints.preferDeferredRenderPass = deferRenderPasses;
+
+    bool dynamicPipelineState = true;
+    applyTristate(dynamicPipelineState, m_options.dynamicPipelineState);
+    hints.preferDynamicPipelineState = dynamicPipelineState
+      && m_features.extExtendedDynamicState.extendedDynamicState;
+
+    // Mali's bounds checks on uniform and storage buffers cost shader time
+    bool relaxedBufferRobustness = m_adapter->matchesDriver(VK_DRIVER_ID_ARM_PROPRIETARY);
+    applyTristate(relaxedBufferRobustness, m_options.relaxedBufferRobustness);
+    hints.preferRelaxedBufferRobustness = relaxedBufferRobustness
+      && m_features.extPipelineRobustness.pipelineRobustness;
     return hints;
   }
 
