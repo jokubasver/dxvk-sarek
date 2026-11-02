@@ -52,6 +52,9 @@ namespace dxvk {
 
     m_dynamicPipelineState = m_device->perfHints().preferDynamicPipelineState;
 
+    m_msaaReloadBias = true;
+    applyTristate(m_msaaReloadBias, m_device->config().msaaReloadBias);
+
     // Init framebuffer info with default render pass in case
     // the app does not explicitly bind any render targets
     m_state.om.framebufferInfo = makeFramebufferInfo(m_state.om.renderTargets);
@@ -505,6 +508,10 @@ namespace dxvk {
       clearValue.color = util::swizzleClearColor(clearValue.color,
         util::invertComponentMapping(imageView->info().swizzle));
     }
+
+    // The clear covers the whole view, see updateMsaaReloadBias
+    if (clearAspects & VK_IMAGE_ASPECT_DEPTH_BIT)
+      imageView->image()->resetMsaaDepth();
 
     // Check whether the render target view is an attachment
     // of the current framebuffer and is included entirely.
@@ -3985,6 +3992,14 @@ namespace dxvk {
         renderArea = { { x0, y0 }, { uint32_t(x1 - x0), uint32_t(y1 - y0) } };
       }
 
+      // Depth that is cleared or discarded as the pass begins has
+      // nothing left of the samples an earlier pass wrote out
+      const DxvkAttachment& depth = m_state.om.framebufferInfo.getDepthTarget();
+
+      if (depth.view != nullptr
+       && m_state.om.renderPassOps.depthOps.loadOpD != VK_ATTACHMENT_LOAD_OP_LOAD)
+        depth.view->image()->resetMsaaDepth();
+
       m_renderArea        = renderArea;
       m_renderAreaGrow    = false;
       m_renderAreaPartial = renderArea.extent.width  < fbSize.width
@@ -4010,6 +4025,47 @@ namespace dxvk {
       // Begin occlusion queries
       m_queryManager.beginQueries(m_cmd, VK_QUERY_TYPE_OCCLUSION);
       m_queryManager.beginQueries(m_cmd, VK_QUERY_TYPE_PIPELINE_STATISTICS);
+    }
+  }
+
+
+  // A render-to-single-sampled target (msaaRenderToSingleSampled) keeps its
+  // samples only in tile memory. When its render pass ends, which a split
+  // for another target (eye glints, framebuffer copies, the half-res
+  // particle pass), a copy or a barrier all do, the samples are written out
+  // resolved, and the next pass loads every sample of a pixel with the one
+  // resolved depth. A pass that draws a model again over its own depth
+  // (the projected-texture light on the G-Man in Episode Two's vision
+  // scene) then compares each sample's own depth with that one value, and
+  // about half the samples fail: patches of the second pass go missing
+  // along the triangles. Once such a target's pass has ended and until its
+  // depth is cleared, draws into it with depth test LEQUAL/EQUAL and depth
+  // writes off are pulled towards the viewer by about a pixel's depth slope
+  // (EQUAL becomes LEQUAL, which an offset would otherwise always fail),
+  // enough to cover the samples' spread within a pixel. Targets whose pass
+  // never ended mid-frame are drawn as they always were. Same as togles'
+  // gl_msaa_reload_bias; dxvk.msaaReloadBias = False turns it off.
+  void DxvkContext::updateMsaaReloadBias() {
+    const DxvkAttachment& depth = m_state.om.framebufferInfo.getDepthTarget();
+    bool active = false;
+
+    if (depth.view != nullptr
+     && depth.view->imageInfo().renderSampleCount > VK_SAMPLE_COUNT_1_BIT) {
+      DxvkImage* image = depth.view->image().ptr();
+      const DxvkDsInfo& ds = m_state.gp.state.ds;
+      const VkCompareOp op = ds.depthCompareOp();
+
+      if (ds.enableDepthWrite())
+        image->noteMsaaDepthWrite();
+      else if (ds.enableDepthTest() && image->msaaDepthSamplesLost())
+        active = op == VK_COMPARE_OP_LESS_OR_EQUAL || op == VK_COMPARE_OP_EQUAL;
+    }
+
+    if (active != m_msaaBiasActive) {
+      m_msaaBiasActive = active;
+      m_flags.set(
+        DxvkContextFlag::GpDirtyPipelineState,
+        DxvkContextFlag::GpDirtyDepthBias);
     }
   }
 
@@ -4040,6 +4096,13 @@ namespace dxvk {
 
       m_queryManager.endQueries(m_cmd, VK_QUERY_TYPE_OCCLUSION);
       m_queryManager.endQueries(m_cmd, VK_QUERY_TYPE_PIPELINE_STATISTICS);
+
+      // The pass writes its samples out resolved, see updateMsaaReloadBias
+      const DxvkAttachment& depth = m_state.om.framebufferInfo.getDepthTarget();
+
+      if (depth.view != nullptr
+       && depth.view->imageInfo().renderSampleCount > VK_SAMPLE_COUNT_1_BIT)
+        depth.view->image()->noteMsaaPassEnd();
 
       this->renderPassUnbindFramebuffer();
 
@@ -4483,7 +4546,7 @@ namespace dxvk {
       ? DxvkContextFlag::GpDynamicBlendConstants
       : DxvkContextFlag::GpDirtyBlendConstants);
 
-    m_flags.set(m_state.gp.state.useDynamicDepthBias()
+    m_flags.set(m_state.gp.state.useDynamicDepthBias() || m_msaaBiasActive
       ? DxvkContextFlag::GpDynamicDepthBias
       : DxvkContextFlag::GpDirtyDepthBias);
 
@@ -4504,7 +4567,7 @@ namespace dxvk {
       const DxvkRsInfo& rs = m_state.gp.state.rs;
       const DxvkDsInfo& ds = m_state.gp.state.ds;
 
-      key.rs = DxvkRsInfo(rs.depthClipEnable(), rs.depthBiasEnable(), rs.polygonMode(),
+      key.rs = DxvkRsInfo(rs.depthClipEnable(), rs.depthBiasEnable() || m_msaaBiasActive, rs.polygonMode(),
         VK_CULL_MODE_NONE, VK_FRONT_FACE_COUNTER_CLOCKWISE,
         rs.viewportCount(), rs.sampleCount(), rs.conservativeMode());
       key.ds = DxvkDsInfo(VK_FALSE, VK_FALSE, ds.enableDepthBoundsTest(),
@@ -4512,6 +4575,19 @@ namespace dxvk {
 
       for (uint32_t i = 0; i < key.il.bindingCount(); i++)
         key.ilBindings[i].setStride(0);
+
+      pipeline = m_state.gp.pipeline->getPipelineHandle(
+        key, m_state.om.framebufferInfo.renderPass());
+    } else if (unlikely(m_msaaBiasActive)) {
+      DxvkGraphicsPipelineStateInfo key = m_state.gp.state;
+      const DxvkRsInfo& rs = m_state.gp.state.rs;
+      const DxvkDsInfo& ds = m_state.gp.state.ds;
+
+      key.rs = DxvkRsInfo(rs.depthClipEnable(), VK_TRUE, rs.polygonMode(),
+        rs.cullMode(), rs.frontFace(), rs.viewportCount(), rs.sampleCount(),
+        rs.conservativeMode());
+      key.ds = DxvkDsInfo(ds.enableDepthTest(), ds.enableDepthWrite(),
+        ds.enableDepthBoundsTest(), ds.enableStencilTest(), VK_COMPARE_OP_LESS_OR_EQUAL);
 
       pipeline = m_state.gp.pipeline->getPipelineHandle(
         key, m_state.om.framebufferInfo.renderPass());
@@ -4556,7 +4632,8 @@ namespace dxvk {
     next.depthTest      = ds.enableDepthTest();
     next.depthWrite     = ds.enableDepthWrite()
       && !util::isDepthReadOnlyLayout(m_state.om.framebufferInfo.renderPass()->format().depth.layout);
-    next.depthCompareOp = ds.depthCompareOp();
+    next.depthCompareOp = m_msaaBiasActive
+      ? VK_COMPARE_OP_LESS_OR_EQUAL : ds.depthCompareOp();
 
     // Pipelines with these states static (meta operations) leave them
     // undefined, which every point clearing m_gpActivePipeline covers
@@ -5174,10 +5251,22 @@ namespace dxvk {
                     DxvkContextFlag::GpDynamicDepthBias)) {
       m_flags.clr(DxvkContextFlag::GpDirtyDepthBias);
 
+      DxvkDepthBias bias = m_state.dyn.depthBias;
+
+      // See updateMsaaReloadBias. The bias values are only kept
+      // up to date while the rasterizer state enables depth bias.
+      if (unlikely(m_msaaBiasActive)) {
+        if (!m_state.gp.state.rs.depthBiasEnable())
+          bias = DxvkDepthBias();
+
+        bias.depthBiasConstant -= 2.0f;
+        bias.depthBiasSlope    -= 1.5f;
+      }
+
       m_cmd->cmdSetDepthBias(
-        m_state.dyn.depthBias.depthBiasConstant,
-        m_state.dyn.depthBias.depthBiasClamp,
-        m_state.dyn.depthBias.depthBiasSlope);
+        bias.depthBiasConstant,
+        bias.depthBiasClamp,
+        bias.depthBiasSlope);
     }
 
     if (m_flags.all(DxvkContextFlag::GpDirtyDepthBounds,
@@ -5283,6 +5372,9 @@ namespace dxvk {
 
     if (!m_flags.test(DxvkContextFlag::GpRenderPassBound))
       this->startRenderPass();
+
+    if (m_msaaReloadBias)
+      this->updateMsaaReloadBias();
 
     if (m_flags.test(DxvkContextFlag::GpDirtyIndexBuffer) && Indexed) {
       if (unlikely(!this->updateIndexBufferBinding()))

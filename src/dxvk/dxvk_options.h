@@ -65,6 +65,11 @@ namespace dxvk {
     /// so pipelines differing only in them are one. Auto = on if supported.
     Tristate dynamicPipelineState = Tristate::Auto;
 
+    /// Depth bias for draws over existing depth into a render-to-single-
+    /// sampled target whose pass was ended since its last depth clear,
+    /// see DxvkContext::updateMsaaReloadBias. Auto = on.
+    Tristate msaaReloadBias = Tristate::Auto;
+
     /// Measurement only: never enable alpha to coverage
     bool disableAlphaToCoverage = false;
 

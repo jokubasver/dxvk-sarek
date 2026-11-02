@@ -19,6 +19,7 @@ namespace dxvk {
     eventQueryAtSubmit    = config.getOption<Tristate>("dxvk.eventQueryAtSubmit",     Tristate::Auto);
     presentLatestReady    = config.getOption<Tristate>("dxvk.presentLatestReady",     Tristate::Auto);
     dynamicPipelineState  = config.getOption<Tristate>("dxvk.dynamicPipelineState",   Tristate::Auto);
+    msaaReloadBias        = config.getOption<Tristate>("dxvk.msaaReloadBias",         Tristate::Auto);
     disableAlphaToCoverage = config.getOption<bool>("dxvk.disableAlphaToCoverage",    false);
     pipelineCache         = config.getOption<Tristate>("dxvk.pipelineCache",          Tristate::Auto);
     zeroMappedMemory      = config.getOption<bool>("dxvk.zeroMappedMemory", false);

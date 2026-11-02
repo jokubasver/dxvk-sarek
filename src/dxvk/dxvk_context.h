@@ -1110,6 +1110,9 @@ namespace dxvk {
     bool                    m_dynamicPipelineState = false;
     DxvkDynamicPipelineState m_dynState;
 
+    bool                    m_msaaReloadBias = false;
+    bool                    m_msaaBiasActive = false;
+
     DxvkBarrierSet          m_sdmaAcquires;
     DxvkBarrierSet          m_sdmaBarriers;
     DxvkBarrierSet          m_initBarriers;
@@ -1263,6 +1266,8 @@ namespace dxvk {
 
     void startRenderPass(const VkRect2D* clearRect = nullptr);
     void spillRenderPass(bool suspend);
+
+    void updateMsaaReloadBias();
 
     void renderPassBindFramebuffer(
       const DxvkFramebufferInfo&  framebufferInfo,

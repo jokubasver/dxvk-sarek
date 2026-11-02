@@ -329,6 +329,29 @@ namespace dxvk {
      */
     HANDLE sharedHandle() const;
 
+    /**
+     * \brief Render-to-single-sampled depth tracking
+     *
+     * See DxvkContext::updateMsaaReloadBias. Only
+     * the context's worker thread touches these.
+     */
+    bool msaaDepthSamplesLost() const {
+      return m_msaaDepthLost;
+    }
+
+    void noteMsaaDepthWrite() {
+      m_msaaDepthDrawn = true;
+    }
+
+    void noteMsaaPassEnd() {
+      m_msaaDepthLost |= m_msaaDepthDrawn;
+    }
+
+    void resetMsaaDepth() {
+      m_msaaDepthDrawn = false;
+      m_msaaDepthLost  = false;
+    }
+
   private:
 
     DxvkMemoryKind memoryKind() const;
@@ -340,6 +363,8 @@ namespace dxvk {
     VkMemoryPropertyFlags m_memFlags;
     DxvkPhysicalImage     m_image;
     bool m_shared = false;
+    bool m_msaaDepthDrawn = false;
+    bool m_msaaDepthLost  = false;
 
     small_vector<VkFormat, 4> m_viewFormats;
 
