@@ -1,5 +1,6 @@
 #include <cstring>
 
+#include "../util/util_stall.h"
 #include "../util/util_time.h"
 
 #include "dxvk_asynccompiler.h"
@@ -131,8 +132,17 @@ namespace dxvk {
     if (instance != nullptr)
       return instance->pipeline();
 
+    double t0 = stall::enabled() ? stall::now() : 0.0;
+
     instance = this->createInstance(state, renderPass);
     this->writePipelineStateToCache(state, renderPass->format());
+
+    if (stall::enabled()) {
+      double t1 = stall::now();
+      Logger::info(str::format("STALL ", uint32_t(t0), " ms: pipeline compiled on the render path in ",
+        uint32_t(t1 - t0), " ms (", fallback != VK_NULL_HANDLE ? "stand-in unused" : "no stand-in",
+        ", fs ", m_shaders.fs != nullptr ? m_shaders.fs->debugName() : std::string("none"), ")"));
+    }
 
     if (instance == nullptr)
       return VK_NULL_HANDLE;

@@ -4,6 +4,8 @@
 #include "d3d9_device.h"
 #include "d3d9_util.h"
 
+#include "../util/util_stall.h"
+
 namespace dxvk {
 
   D3D9CommonShader::D3D9CommonShader() {}
@@ -104,6 +106,8 @@ namespace dxvk {
     auto entry = m_srgbBlend->shaders.find(Key);
 
     if (entry == m_srgbBlend->shaders.end()) {
+      double t0 = stall::enabled() ? stall::now() : 0.0;
+
       DxsoReader reader(reinterpret_cast<const char*>(m_bytecode.data()));
       DxsoModule module(reader);
       DxsoAnalysisInfo analysis = module.analyze();
@@ -116,6 +120,10 @@ namespace dxvk {
       std::string name = str::format(GetName(), "_srgbblend_", std::hex, Key);
       entry = m_srgbBlend->shaders.insert({ Key,
         module.compile(moduleInfo, name, analysis, pDevice->GetPixelConstantLayout()) }).first;
+
+      if (stall::enabled())
+        Logger::info(str::format("STALL ", uint32_t(t0), " ms: shader variant ", name,
+          " translated in ", uint32_t(stall::now() - t0), " ms"));
     }
 
     return entry->second[Permutation];
@@ -130,6 +138,8 @@ namespace dxvk {
     DxsoPermutations& variant = m_srgbBlend->propInstancing.at(Mode);
 
     if (variant[D3D9ShaderPermutations::None] == nullptr) {
+      double t0 = stall::enabled() ? stall::now() : 0.0;
+
       DxsoReader reader(reinterpret_cast<const char*>(m_bytecode.data()));
       DxsoModule module(reader);
       DxsoAnalysisInfo analysis = module.analyze();
@@ -141,6 +151,10 @@ namespace dxvk {
       // No shader key: the state cache can't recreate these
       std::string name = str::format(GetName(), "_propinst_", Mode);
       variant = module.compile(moduleInfo, name, analysis, pDevice->GetVertexConstantLayout());
+
+      if (stall::enabled())
+        Logger::info(str::format("STALL ", uint32_t(t0), " ms: shader variant ", name,
+          " translated in ", uint32_t(stall::now() - t0), " ms"));
     }
 
     return variant[D3D9ShaderPermutations::None];

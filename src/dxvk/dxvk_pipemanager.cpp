@@ -132,6 +132,11 @@ namespace dxvk {
   }
 
 
+  void DxvkPipelineManager::savePipelineCache() const {
+    m_cache->requestSave();
+  }
+
+
   void DxvkPipelineManager::stopWorkerThreads() const {
     switch (m_stateCache != nullptr) {
       case true:  m_stateCache->stopWorkerThreads(); break;

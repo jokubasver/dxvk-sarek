@@ -219,6 +219,11 @@ namespace dxvk {
   }
 
 
+  void DxvkDevice::savePipelineCache() {
+    m_objects.pipelineManager().savePipelineCache();
+  }
+
+
   void DxvkDevice::presentImage(
     const Rc<vk::Presenter>&        presenter,
           DxvkSubmitStatus*         status) {

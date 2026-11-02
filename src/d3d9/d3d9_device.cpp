@@ -219,6 +219,9 @@ namespace dxvk {
 
 
   HRESULT STDMETHODCALLTYPE D3D9DeviceEx::EvictManagedResources() {
+    // Source calls this at every level load, where the whole-file
+    // rewrite of the pipeline cache can't show as a hitch
+    m_dxvkDevice->savePipelineCache();
     return D3D_OK;
   }
 

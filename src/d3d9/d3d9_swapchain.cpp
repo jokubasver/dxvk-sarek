@@ -5,6 +5,7 @@
 #include "d3d9_hud.h"
 
 #include "../dxvk/framepacer/dxvk_framepacer.h"
+#include "../util/util_stall.h"
 
 namespace dxvk {
 
@@ -283,6 +284,16 @@ namespace dxvk {
     const RGNDATA* pDirtyRegion,
           DWORD    dwFlags) {
     D3D9DeviceLock lock = m_parent->LockDevice();
+
+    if (stall::enabled()) {
+      double now = stall::now();
+
+      if (m_stallLastPresent > 0.0 && now - m_stallLastPresent >= 50.0)
+        Logger::info(str::format("STALL ", uint32_t(m_stallLastPresent), " ms: frame took ",
+          uint32_t(now - m_stallLastPresent), " ms"));
+
+      m_stallLastPresent = now;
+    }
 
     uint32_t presentInterval = m_presentParams.PresentationInterval;
 

@@ -119,6 +119,11 @@ namespace dxvk {
     void stopWorkerThreads() const;
 
     /**
+     * \brief Writes the pipeline cache to disk in the background
+     */
+    void savePipelineCache() const;
+
+    /**
      * \brief Queries the active shader compilation method
      * \returns The method resolved at construction
      */

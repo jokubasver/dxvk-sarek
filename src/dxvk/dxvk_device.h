@@ -418,6 +418,11 @@ namespace dxvk {
       const Rc<DxvkShader>&         shader);
 
     /**
+     * \brief Writes the pipeline cache to disk in the background
+     */
+    void savePipelineCache();
+
+    /**
      * \brief Presents a swap chain image
      *
      * Invokes the presenter's \c presentImage method on

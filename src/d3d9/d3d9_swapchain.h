@@ -94,6 +94,8 @@ namespace dxvk {
     };
 
     D3DPRESENT_PARAMETERS     m_presentParams;
+
+    double                    m_stallLastPresent = 0.0;
     D3DGAMMARAMP              m_ramp;
 
     Rc<DxvkDevice>            m_device;

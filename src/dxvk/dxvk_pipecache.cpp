@@ -5,6 +5,8 @@
 #include "dxvk_device.h"
 #include "dxvk_pipecache.h"
 
+#include "../util/util_stall.h"
+
 namespace dxvk {
 
   namespace {
@@ -165,6 +167,8 @@ namespace dxvk {
     if (!size || size == m_savedSize)
       return;
 
+    double t0 = stall::now();
+
     std::vector<char> data(size);
 
     // VK_INCOMPLETE: it grew meanwhile, the next round takes it
@@ -188,6 +192,23 @@ namespace dxvk {
 
     if (std::rename(tempName.c_str(), m_fileName.c_str()) == 0)
       m_savedSize = size;
+
+    double t1 = stall::now();
+
+    Logger::info(str::format("DXVK: Pipeline cache: saved ", size >> 10, " kB in ",
+      uint32_t(t1 - t0), " ms (at ", uint32_t(t0), " ms)"));
+  }
+
+
+  void DxvkPipelineCache::requestSave() {
+    if (!m_thread.joinable())
+      return;
+
+    { std::lock_guard<dxvk::mutex> lock(m_mutex);
+      m_saveRequested = true;
+    }
+
+    m_cond.notify_one();
   }
 
 
@@ -197,12 +218,14 @@ namespace dxvk {
     std::unique_lock<dxvk::mutex> lock(m_mutex);
 
     while (!m_stopped) {
-      m_cond.wait_for(lock, std::chrono::seconds(15), [this] {
-        return m_stopped;
+      m_cond.wait(lock, [this] {
+        return m_stopped || m_saveRequested;
       });
 
       if (m_stopped)
         break;
+
+      m_saveRequested = false;
 
       lock.unlock();
       save();

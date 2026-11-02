@@ -39,6 +39,16 @@ namespace dxvk {
       return m_handle;
     }
 
+    /**
+     * \brief Writes the cache to disk in the background
+     *
+     * The driver hands out the cache only as one opaque blob, so every
+     * save rewrites the whole file (tens of MB). Saving on a timer did
+     * that in the middle of play; callers ask for it at level loads,
+     * and the cache is saved once more on shutdown.
+     */
+    void requestSave();
+
   private:
 
     Rc<vk::DeviceFn>            m_vkd;
@@ -51,6 +61,7 @@ namespace dxvk {
     dxvk::mutex                 m_mutex;
     dxvk::condition_variable    m_cond;
     bool                        m_stopped = false;
+    bool                        m_saveRequested = false;
     dxvk::thread                m_thread;
 
     std::vector<char> readFile() const;
