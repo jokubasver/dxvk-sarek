@@ -73,9 +73,10 @@ namespace dxvk {
     VkAttachmentLoadOp  loadOpS     = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
     VkImageLayout       loadLayout  = VK_IMAGE_LAYOUT_UNDEFINED;
     VkImageLayout       storeLayout = VK_IMAGE_LAYOUT_GENERAL;
+    VkAttachmentStoreOp storeOp     = VK_ATTACHMENT_STORE_OP_STORE;
   };
-  
-  
+
+
   /**
    * \brief Render pass barrier
    * 

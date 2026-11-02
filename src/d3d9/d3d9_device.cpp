@@ -4547,6 +4547,19 @@ namespace dxvk {
   }
 
 
+  void D3D9DeviceEx::DiscardDepthStencil() {
+    D3D9DeviceLock lock = LockDevice();
+
+    if (m_state.depthStencil == nullptr)
+      return;
+
+    EmitCs([
+      cView = m_state.depthStencil->GetDepthStencilView()
+    ] (DxvkContext* ctx) {
+      ctx->discardRenderPassDepth(cView);
+    });
+  }
+
 
   bool D3D9DeviceEx::DrawPropInstances(
           D3DPRIMITIVETYPE        PrimitiveType,

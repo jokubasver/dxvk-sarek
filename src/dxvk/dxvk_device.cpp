@@ -318,6 +318,10 @@ namespace dxvk {
     bool fragmentBarriers = tilerMode;
     applyTristate(fragmentBarriers, m_options.fragmentBarriers);
     hints.preferFragmentBarriers = fragmentBarriers;
+
+    bool deferRenderPasses = tilerMode;
+    applyTristate(deferRenderPasses, m_options.deferRenderPasses);
+    hints.preferDeferredRenderPass = deferRenderPasses;
     return hints;
   }
 

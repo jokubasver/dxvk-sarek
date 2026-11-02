@@ -531,6 +531,7 @@ namespace dxvk {
       clearRect.layerCount          = imageView->info().numLayers;
 
       m_cmd->cmdClearAttachments(1, &clearInfo, 1, &clearRect);
+      m_passDiscardDepth = false;
     } else
       this->deferClear(imageView, clearAspects, clearValue);
   }
@@ -3170,6 +3171,7 @@ namespace dxvk {
     clearRect.layerCount          = imageView->info().numLayers;
 
     m_cmd->cmdClearAttachments(1, &clearInfo, 1, &clearRect);
+    m_passDiscardDepth = false;
 
     // Unbind temporary framebuffer
     if (attachmentIndex < 0)
@@ -3970,7 +3972,8 @@ namespace dxvk {
         m_state.om.renderPassOps,
         m_state.om.framebufferInfo.numAttachments(),
         m_state.om.clearValues.data(),
-        &renderArea);
+        &renderArea,
+        m_device->perfHints().preferDeferredRenderPass);
 
       // Track the final layout of each render target
       this->applyRenderTargetStoreLayouts();
@@ -4043,7 +4046,8 @@ namespace dxvk {
     const DxvkRenderPassOps&    ops,
           uint32_t              clearValueCount,
     const VkClearValue*         clearValues,
-    const VkRect2D*             pRenderArea) {
+    const VkRect2D*             pRenderArea,
+          bool                  deferred) {
     const DxvkFramebufferSize fbSize = framebufferInfo.size();
 
     Rc<DxvkFramebuffer> framebuffer = this->lookupFramebuffer(framebufferInfo);
@@ -4064,8 +4068,18 @@ namespace dxvk {
     info.clearValueCount      = clearValueCount;
     info.pClearValues         = clearValues;
 
-    m_cmd->cmdBeginRenderPass(&info,
-      VK_SUBPASS_CONTENTS_INLINE);
+    if (deferred) {
+      // The store ops are picked when the pass ends, see
+      // renderPassUnbindFramebuffer and discardRenderPassDepth
+      m_passRenderPass   = framebufferInfo.renderPass();
+      m_passOps          = ops;
+      m_passDiscardDepth = false;
+
+      m_cmd->cmdBeginDeferredRenderPass(&info);
+    } else {
+      m_cmd->cmdBeginRenderPass(&info,
+        VK_SUBPASS_CONTENTS_INLINE);
+    }
 
     m_cmd->trackResource<DxvkAccess::None>(framebuffer);
 
@@ -4151,7 +4165,37 @@ namespace dxvk {
 
 
   void DxvkContext::renderPassUnbindFramebuffer() {
-    m_cmd->cmdEndRenderPass();
+    if (!m_cmd->isRenderPassDeferred()) {
+      m_cmd->cmdEndRenderPass();
+      return;
+    }
+
+    DxvkRenderPassOps ops = m_passOps;
+
+    if (m_passDiscardDepth)
+      ops.depthOps.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+
+    m_cmd->cmdEndDeferredRenderPass(m_passRenderPass->getHandle(ops));
+
+    m_passRenderPass   = nullptr;
+    m_passDiscardDepth = false;
+
+    // Executing the pass leaves the exec buffer's bound state undefined.
+    // Graphics state gets reset when the pass ends anyway.
+    this->unbindComputePipeline();
+  }
+
+
+  void DxvkContext::discardRenderPassDepth(
+    const Rc<DxvkImageView>&    imageView) {
+    // The open pass's depth, targets bound since then aren't in it yet
+    const Rc<DxvkImageView>& depthView = m_state.om.framebufferInfo.getDepthTarget().view;
+
+    if (m_flags.test(DxvkContextFlag::GpRenderPassBound)
+     && m_cmd->isRenderPassDeferred()
+     && depthView != nullptr && imageView != nullptr
+     && depthView->image() == imageView->image())
+      m_passDiscardDepth = true;
   }
 
 
@@ -5109,6 +5153,11 @@ namespace dxvk {
 
   template<bool Indexed, bool Indirect>
   bool DxvkContext::commitGraphicsState() {
+    // A draw after the discard may need the depth contents again, unless
+    // it goes to other render targets, which ends the pass before it
+    if (!m_flags.test(DxvkContextFlag::GpDirtyFramebuffer))
+      m_passDiscardDepth = false;
+
     if (m_flags.test(DxvkContextFlag::GpDirtyPipeline)) {
       if (unlikely(!this->updateGraphicsPipeline()))
         return false;

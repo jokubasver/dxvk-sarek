@@ -254,6 +254,18 @@ namespace dxvk {
             VkClearValue          clearValue);
 
     /**
+     * \brief Drops the depth-stencil contents at the end of the pass
+     *
+     * The caller won't read the image's depth or stencil again before
+     * clearing it, so the current render pass needn't store them. Only
+     * takes effect with deferred render passes, and is cancelled by any
+     * draw or clear recorded into the same pass after it.
+     * \param [in] imageView View of the depth-stencil image
+     */
+    void discardRenderPassDepth(
+      const Rc<DxvkImageView>&    imageView);
+
+    /**
      * \brief Clears an image view
      *
      * Can be used to clear sub-regions of storage images
@@ -1067,6 +1079,10 @@ namespace dxvk {
     bool                    m_renderAreaPartial = false;
     bool                    m_renderAreaGrow = false;
 
+    // Deferred render pass (DxvkCommandList::cmdBeginDeferredRenderPass)
+    DxvkRenderPass*         m_passRenderPass = nullptr;
+    DxvkRenderPassOps       m_passOps;
+    bool                    m_passDiscardDepth = false;
     DxvkBarrierSet          m_sdmaAcquires;
     DxvkBarrierSet          m_sdmaBarriers;
     DxvkBarrierSet          m_initBarriers;
@@ -1226,7 +1242,8 @@ namespace dxvk {
       const DxvkRenderPassOps&    ops,
             uint32_t              clearValueCount,
       const VkClearValue*         clearValues,
-      const VkRect2D*             renderArea = nullptr);
+      const VkRect2D*             renderArea = nullptr,
+            bool                  deferred = false);
 
     VkPipelineStageFlags deferVertexStages(
             VkPipelineStageFlags    stages);

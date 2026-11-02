@@ -19,6 +19,7 @@
     DXVK_UnRegisterAnnotation;
     DXVK_D3D9_BeginPropInstances;
     DXVK_D3D9_EndPropInstances;
+    DXVK_D3D9_DiscardDepthStencil;
     Direct3D9ForceHybridEnumeration;
     Direct3DCreate9On12;
     Direct3DCreate9On12Ex;

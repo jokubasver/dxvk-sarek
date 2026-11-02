@@ -115,4 +115,10 @@ extern "C" {
     return static_cast<dxvk::D3D9DeviceEx*>(pDevice)->EndPropInstances();
   }
 
+  // Depth-stencil contents the caller is done with, see
+  // D3D9DeviceEx::DiscardDepthStencil
+  DLLEXPORT void __stdcall DXVK_D3D9_DiscardDepthStencil(IDirect3DDevice9* pDevice) {
+    static_cast<dxvk::D3D9DeviceEx*>(pDevice)->DiscardDepthStencil();
+  }
+
 }

@@ -309,6 +309,33 @@ namespace dxvk {
     }
 
 
+    /**
+     * \brief Starts recording a render pass whose ops are picked later
+     *
+     * Commands recorded until \ref cmdEndDeferredRenderPass go to a
+     * secondary command buffer. The pass itself is begun only when it
+     * ends, with a render pass object that may differ from the one in
+     * \c pRenderPassBegin in its load and store ops only.
+     * \param [in] pRenderPassBegin Begin info, without the final ops
+     */
+    void cmdBeginDeferredRenderPass(
+      const VkRenderPassBeginInfo*  pRenderPassBegin);
+
+    /**
+     * \brief Begins and ends the deferred render pass
+     *
+     * Executes the recorded commands in the pass. Bound state
+     * of the exec buffer is undefined afterwards.
+     * \param [in] renderPass Render pass object with the final ops
+     */
+    void cmdEndDeferredRenderPass(
+            VkRenderPass            renderPass);
+
+    bool isRenderPassDeferred() const {
+      return m_primaryBuffer != VK_NULL_HANDLE;
+    }
+
+
     void cmdBeginTransformFeedback(
             uint32_t                  firstBuffer,
             uint32_t                  bufferCount,
@@ -805,6 +832,15 @@ namespace dxvk {
     VkCommandBuffer     m_sdmaBuffer = VK_NULL_HANDLE;
 
     VkSemaphore         m_sdmaSemaphore = VK_NULL_HANDLE;
+
+    // While a deferred render pass records, m_execBuffer is its
+    // secondary command buffer and this holds the real exec buffer
+    VkCommandBuffer     m_primaryBuffer = VK_NULL_HANDLE;
+    VkRenderPassBeginInfo m_passBegin = { };
+    std::array<VkClearValue, MaxNumRenderTargets + 1> m_passClearValues = { };
+
+    std::vector<VkCommandBuffer> m_passBuffers;
+    uint32_t            m_passBuffersUsed = 0;
 
     DxvkCmdBufferFlags  m_cmdBuffersUsed;
     DxvkLifetimeTracker m_resources;

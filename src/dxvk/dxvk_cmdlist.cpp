@@ -160,6 +160,83 @@ namespace dxvk {
     // Unconditionally mark the exec buffer as used. There
     // is virtually no use case where this isn't correct.
     m_cmdBuffersUsed = DxvkCmdBuffer::ExecBuffer;
+
+    // The pool reset above also reset the render pass buffers
+    m_passBuffersUsed = 0;
+  }
+
+
+  void DxvkCommandList::cmdBeginDeferredRenderPass(
+    const VkRenderPassBeginInfo*  pRenderPassBegin) {
+    if (m_passBuffersUsed == m_passBuffers.size()) {
+      VkCommandBufferAllocateInfo allocInfo;
+      allocInfo.sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+      allocInfo.pNext              = nullptr;
+      allocInfo.commandPool        = m_graphicsPool;
+      allocInfo.level              = VK_COMMAND_BUFFER_LEVEL_SECONDARY;
+      allocInfo.commandBufferCount = 1;
+
+      VkCommandBuffer cmdBuffer = VK_NULL_HANDLE;
+
+      if (m_vkd->vkAllocateCommandBuffers(m_vkd->device(), &allocInfo, &cmdBuffer) != VK_SUCCESS)
+        throw DxvkError("DxvkCommandList: Failed to allocate render pass command buffer");
+
+      m_passBuffers.push_back(cmdBuffer);
+    }
+
+    VkCommandBuffer passBuffer = m_passBuffers[m_passBuffersUsed++];
+
+    VkCommandBufferInheritanceInfo inheritance;
+    inheritance.sType                = VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO;
+    inheritance.pNext                = nullptr;
+    inheritance.renderPass           = pRenderPassBegin->renderPass;
+    inheritance.subpass              = 0;
+    inheritance.framebuffer          = pRenderPassBegin->framebuffer;
+    inheritance.occlusionQueryEnable = VK_FALSE;
+    inheritance.queryFlags           = 0;
+    inheritance.pipelineStatistics   = 0;
+
+    VkCommandBufferBeginInfo info;
+    info.sType            = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    info.pNext            = nullptr;
+    info.flags            = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT
+                          | VK_COMMAND_BUFFER_USAGE_RENDER_PASS_CONTINUE_BIT;
+    info.pInheritanceInfo = &inheritance;
+
+    if (m_vkd->vkBeginCommandBuffer(passBuffer, &info) != VK_SUCCESS)
+      Logger::err("DxvkCommandList: Failed to begin render pass command buffer");
+
+    m_passBegin = *pRenderPassBegin;
+
+    uint32_t clearCount = std::min<uint32_t>(m_passBegin.clearValueCount, m_passClearValues.size());
+
+    for (uint32_t i = 0; i < clearCount; i++)
+      m_passClearValues[i] = m_passBegin.pClearValues[i];
+
+    m_passBegin.clearValueCount = clearCount;
+    m_passBegin.pClearValues    = clearCount ? m_passClearValues.data() : nullptr;
+
+    m_primaryBuffer = m_execBuffer;
+    m_execBuffer    = passBuffer;
+  }
+
+
+  void DxvkCommandList::cmdEndDeferredRenderPass(
+          VkRenderPass            renderPass) {
+    VkCommandBuffer passBuffer = m_execBuffer;
+
+    if (m_vkd->vkEndCommandBuffer(passBuffer) != VK_SUCCESS)
+      Logger::err("DxvkCommandList: Failed to record render pass command buffer");
+
+    m_execBuffer    = m_primaryBuffer;
+    m_primaryBuffer = VK_NULL_HANDLE;
+
+    m_passBegin.renderPass = renderPass;
+
+    m_vkd->vkCmdBeginRenderPass(m_execBuffer, &m_passBegin,
+      VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS);
+    m_vkd->vkCmdExecuteCommands(m_execBuffer, 1, &passBuffer);
+    m_vkd->vkCmdEndRenderPass(m_execBuffer);
   }
   
   

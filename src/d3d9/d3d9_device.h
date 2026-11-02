@@ -957,6 +957,15 @@ namespace dxvk {
 
     bool EndPropInstances();
 
+    /**
+     * \brief Drops the bound depth-stencil contents at the end of the pass
+     *
+     * The caller promises not to read the depth or stencil of the current
+     * depth-stencil surface again before clearing it. Draws or clears
+     * after this call cancel it. See DxvkContext::discardRenderPassDepth.
+     */
+    void DiscardDepthStencil();
+
     HRESULT ResetState(D3DPRESENT_PARAMETERS* pPresentationParameters);
 
     HRESULT SetColorKeyState(DWORD stage, bool colorKeyState) {

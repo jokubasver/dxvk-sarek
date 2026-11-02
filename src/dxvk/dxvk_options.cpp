@@ -13,6 +13,7 @@ namespace dxvk {
     deviceFilter          = config.getOption<std::string>("dxvk.deviceFilter",        "");
     tilerMode             = config.getOption<Tristate>("dxvk.tilerMode",              Tristate::Auto);
     fragmentBarriers      = config.getOption<Tristate>("dxvk.fragmentBarriers",       Tristate::Auto);
+    deferRenderPasses     = config.getOption<Tristate>("dxvk.deferRenderPasses",      Tristate::Auto);
     pipelineCache         = config.getOption<Tristate>("dxvk.pipelineCache",          Tristate::Auto);
     zeroMappedMemory      = config.getOption<bool>("dxvk.zeroMappedMemory", false);
     lowerSinCos           = config.getOption<Tristate>("dxvk.lowerSinCos",            Tristate::Auto);

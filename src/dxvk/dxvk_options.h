@@ -38,6 +38,11 @@ namespace dxvk {
     /// work can overlap it. Auto follows tilerMode.
     Tristate fragmentBarriers = Tristate::Auto;
 
+    /// Record render passes into secondary command buffers and begin
+    /// them when they end, so a pass can still learn that its depth
+    /// contents won't be needed. Auto follows tilerMode.
+    Tristate deferRenderPasses = Tristate::Auto;
+
     /// Hand the driver a pipeline cache and keep it on disk beside
     /// the state cache, for drivers without a disk cache of their own
     Tristate pipelineCache = Tristate::Auto;
