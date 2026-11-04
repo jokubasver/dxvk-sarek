@@ -17,6 +17,7 @@
 #include "d3d9_spec_constants.h"
 #include "d3d9_names.h"
 #include "d3d9_format_helpers.h"
+#include "d3d9_unorm16.h"
 
 #include "../dxvk/dxvk_adapter.h"
 #include "../dxvk/dxvk_instance.h"
@@ -4921,8 +4922,25 @@ namespace dxvk {
           return D3DERR_WASSTILLDRAWING;
 
         // The GPU wrote the buffer: drop stale lines from the CPU caches
-        if (needsReadback)
+        if (needsReadback) {
           invalidateHostMemory(physSlice.mapPtr, physSlice.length);
+
+          // Lock must expose UNORM16, matching the fp16 upload conversion.
+          // Otherwise partial updates reinterpret untouched lightmap texels
+          // as UNORM16 and upload them with the wrong brightness.
+          if (formatMapping.ConversionFormatInfo.FormatType == D3D9ConversionFormat_A16B16G16R16_Float16) {
+            auto* data = reinterpret_cast<uint16_t*>(physSlice.mapPtr);
+            VkDeviceSize values = VkDeviceSize(blockCount.width) * blockCount.height
+              * blockCount.depth * formatInfo->elementSize / sizeof(uint16_t);
+
+            for (VkDeviceSize i = 0; i < values; i++)
+              data[i] = convertFloat16ToUnorm16(data[i]);
+
+            // Conversion writes even for READONLY locks. Keep imported host
+            // pages clean before they can be recycled for another GPU write.
+            flushHostMemory(physSlice.mapPtr, physSlice.length);
+          }
+        }
       }
     }
 
